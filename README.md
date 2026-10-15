@@ -16,6 +16,12 @@ Coding agents fail in predictable ways. They edit files they never read. They ma
 
 Gravitas puts those requirements into the loop. Six invariants state them. Skills teach them. Hooks and guards enforce the subset that can be checked mechanically. Validators produce the evidence. A gate reads the evidence before the session is allowed to stop.
 
+## Why now
+
+In late 2026, Google restricted third-party models in Antigravity on licensing grounds: Claude access is now reserved for direct, non-promotional paid subscriptions, and the Claude 4.6 models remaining on other plans are removed on November 2, 2026 ([models table](https://antigravity.google/docs/models/)). Users on promotional routes, including the free Jio tier and student plans, lost the Claude option they had built their workflows around.
+
+What remains on every plan, Free included, is Gemini 3.8 Flash: a fast model built for agentic work, but one that still fails in exactly the predictable ways listed above when nothing constrains its process. That is the opportunity inside the disruption. Gravitas does not bring Claude back. It gives the model you still have the working discipline people miss about Claude: grounded edits, declared scope, executed proof, and no completion without evidence.
+
 ## Installation
 
 Three setups, in order of increasing machinery. All three share the same six invariants.
