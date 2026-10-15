@@ -71,6 +71,35 @@ These are the entire contract. Everything else in the repository implements them
 
 Planning effort follows risk, not ritual. `gravitas decide --signals '{...}'` emits a machine-readable record (`direct`, `compact`, `deep`, `replan`) with reason codes. A one-line fix in one file is `direct`. An auth migration across twelve files is `deep` with a reviewer. The profiles `eco`, `balanced`, `deep`, and `team` set intended process cost. None of them claims a performance advantage; that awaits measured comparison.
 
+## How it works
+
+The whole system is one loop, in plain words:
+
+```mermaid
+flowchart LR
+  A[You describe the task] --> B[Agent reads the code and the tests]
+  B --> C[Agent writes a short plan]
+  C --> D[Agent edits only the allowed files]
+  D --> E[Real checks run on the computer]
+  E --> F{Proof for everything?}
+  F -->|No| C
+  F -->|Yes| G[Finished, proof attached]
+```
+
+And here is what changes when the harness is on:
+
+```mermaid
+flowchart TB
+  subgraph Alone["Gemini alone"]
+    direction LR
+    A1[Gets the task] --> B1[Edits files] --> C1[Says it is done]
+  end
+  subgraph WithG["Gemini plus Gravitas"]
+    direction LR
+    A2[Gets the task] --> B2[Reads the code] --> C2[Makes a plan] --> D2[Edits inside limits] --> E2[Runs the real checks] --> F2[Done only with proof]
+  end
+```
+
 ## Enforcement semantics
 
 Instruction is not enforcement, so the repository distinguishes the two everywhere. What the skill asks for and what the runtime guarantees are documented separately per host.
@@ -133,6 +162,10 @@ bash scripts/build-native-bundle.sh
 
 A clean wheel install plus external-workspace init is smoke-tested from an isolated virtualenv (both skills land, `opencode.json` merges without clobbering). The installed `agy plugin validate` passes on the canonical plugin and the generated bundle.
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=udaysharmadev/Gravitas&type=timeline)](https://star-history.com/#udaysharmadev/Gravitas&timeline)
+
 ## Benchmark status
 
 GravitasBench currently holds **30 registered task specifications across 10 planned lanes**: task design, schemas, a runner, and smoke fixtures. That is infrastructure, not results. No solve rates, no requirement-coverage numbers, no token or latency comparisons, and no model rankings are published, because the preconditions for a credible comparison do not exist yet: pinned tasks, hidden independent validators, identical task sets across baseline and treatment, fixed model and host revisions, repeated runs in clean isolation, recorded failures, and reported overhead with uncertainty. Until then, every performance statement in this repository is a hypothesis with its status labeled. Methodology and release gates: [docs/benchmark.md](docs/benchmark.md), [docs/production-readiness.md](docs/production-readiness.md). The latest hardening audit, with reproductions and residual limitations, is [docs/audits/v5-audit.md](docs/audits/v5-audit.md).
@@ -162,10 +195,6 @@ Useful contributions, in rough order of value: licensed benchmark tasks, hidden 
 ## Citation
 
 Use [CITATION.cff](CITATION.cff) and pin a commit until a versioned release and archived benchmark dataset exist.
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=udaysharmadev/Gravitas&type=timeline)](https://star-history.com/#udaysharmadev/Gravitas&timeline)
 
 ## License
 
