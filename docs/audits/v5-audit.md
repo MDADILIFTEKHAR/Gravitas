@@ -111,5 +111,3 @@ Prior fixes verified present: PR #1 (shell injection), PR #2 squash 297a613 (unp
 - Full suite: 188 tests OK (182 + 6 new)
 - Rebuild ×2: SHA256SUMS stable; `git diff --exit-code -- dist` clean after commit
 - `agy plugin validate` still RC 0 (canonical + dist) — rerun at final gate
-
-
