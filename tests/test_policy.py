@@ -158,6 +158,14 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(record["verification_depth"], "full")
         self.assertEqual(record["delegation"], "reviewer")
 
+    def test_strict_security_delegates_test_adversary(self):
+        record = decide({"security": True, "strict": True})
+        self.assertEqual(record["planning"], "deep")
+        self.assertEqual(record["verification_depth"], "full")
+        self.assertEqual(record["delegation"], "test-adversary")
+        self.assertIn("strict-security", record["reason_codes"])
+        self.assertIn("security", record["reason_codes"])
+
     def test_broad_fanout_gets_impact_auditor(self):
         record = decide({"migration": True, "broad_fanout": True, "files": 12})
         self.assertEqual(record["planning"], "deep")
