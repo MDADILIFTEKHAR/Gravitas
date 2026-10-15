@@ -29,6 +29,7 @@
     "working_tree_sha256": {"type": "string"},
     "git_head": {"type": ["string", "null"]},
     "duration_ms": {"type": "integer", "minimum": 0},
+    "timed_out": {"type": "boolean", "description": "Execution hit the wall-clock bound; verdict is FAIL."},
     "previous_event_hash": {"type": ["string", "null"]},
     "event_hash": {"type": "string"},
     "success": {"type": "boolean"},

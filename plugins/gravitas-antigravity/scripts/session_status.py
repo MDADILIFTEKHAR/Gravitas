@@ -5,6 +5,7 @@ Shows current session state, evidence coverage, and pending criteria.
 
 Usage: python session_status.py [--session-dir PATH]
 """
+from __future__ import annotations
 import json
 import sys
 from pathlib import Path

@@ -12,6 +12,7 @@ duplicate-failure guard.
 Input (stdin): Antigravity JSON with toolCall.name and toolCall.args
 Output (stdout): JSON with decision: allow|deny|force_ask and an optional reason
 """
+from __future__ import annotations
 import json
 import sys
 from pathlib import Path

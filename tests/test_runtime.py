@@ -277,13 +277,17 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(decision["decision"], "continue")
         self.assertIn("acceptance criteria", decision["reason"])
 
-    def test_stop_gate_never_fails_open_after_three_cycles(self):
+    def test_stop_gate_terminates_unverified_after_three_cycles(self):
         self.init({"mode": "implement", "objective": "x", "acceptance_criteria": ["AC1"]})
         decisions = [
-            json.loads(run_script("stop_gate.py", {"fullyIdle": True}, cwd=self.cwd).stdout)["decision"]
+            json.loads(run_script("stop_gate.py", {"fullyIdle": True}, cwd=self.cwd).stdout)
             for _ in range(4)
         ]
-        self.assertEqual(decisions, ["continue"] * 4)
+        self.assertEqual([d["decision"] for d in decisions],
+                         ["continue", "continue", "continue", "allow"])
+        # Safe termination is explicitly unverified, never a false PASS.
+        self.assertTrue(decisions[3].get("unverified"))
+        self.assertIn("UNVERIFIED", decisions[3].get("reason", ""))
 
 
 if __name__ == "__main__":

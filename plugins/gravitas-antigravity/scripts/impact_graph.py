@@ -6,6 +6,7 @@ edges, symbol references, test association, config discovery, and git
 co-change history. Output shape keeps the legacy keys (callers, tests,
 config) and adds importers, symbols, and co_changed.
 """
+from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
