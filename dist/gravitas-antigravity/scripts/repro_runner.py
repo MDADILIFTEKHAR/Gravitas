@@ -17,12 +17,31 @@ import argparse
 import hashlib
 import json
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
 from evidence_chain import append_evidence, sha256
 from gravitas_action import confine_cwd
 from post_tool import redact_text
+
+DEFAULT_TIMEOUT = 300
+OUTPUT_CAP = 1_000_000
+
+
+def run_bounded(command: list[str], cwd: Path, timeout: int) -> tuple[int, bytes, bytes, bool, int]:
+    start = time.monotonic()
+    with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
+        try:
+            proc = subprocess.run(command, cwd=cwd, stdout=out_f, stderr=err_f,
+                                  check=False, timeout=timeout)
+            rc, timed_out = proc.returncode, False
+        except subprocess.TimeoutExpired:
+            rc, timed_out = 124, True
+        elapsed_ms = round((time.monotonic() - start) * 1000)
+        out_f.seek(0)
+        err_f.seek(0)
+        return rc, out_f.read(OUTPUT_CAP + 1)[:OUTPUT_CAP], err_f.read(OUTPUT_CAP + 1)[:OUTPUT_CAP], timed_out, elapsed_ms
 
 
 def load_contract(session_dir: Path) -> dict:
@@ -53,6 +72,7 @@ def main() -> int:
     parser.add_argument("--unreproducible", action="store_true")
     parser.add_argument("--reason", default="")
     parser.add_argument("--cwd", default=".")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Command after --")
     args = parser.parse_args()
 
@@ -89,26 +109,27 @@ def main() -> int:
     except ValueError as error:
         parser.error(str(error))
     start = time.monotonic()
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
-    elapsed_ms = round((time.monotonic() - start) * 1000)
+    rc, out_b, err_b, timed_out, elapsed_ms = run_bounded(command, cwd, args.timeout)
+    stdout_text = out_b.decode("utf-8", errors="replace")
     record = {
         "source": "reproducer",
         "criterion_ids": [args.criterion_id],
         "phase": args.phase,
         "command": command,
         "command_sha256": sha256(command),
-        "exit_code": result.returncode,
-        "stdout_sha256": hashlib.sha256(result.stdout.encode()).hexdigest(),
-        "stderr_sha256": hashlib.sha256(result.stderr.encode()).hexdigest(),
-        "output_snippet": redact_text(result.stdout[-2000:]),
+        "exit_code": rc,
+        "stdout_sha256": hashlib.sha256(out_b).hexdigest(),
+        "stderr_sha256": hashlib.sha256(err_b).hexdigest(),
+        "output_snippet": redact_text(stdout_text[-2000:]),
         "duration_ms": elapsed_ms,
-        "evidence": f"reproducer ({args.phase}) exited {result.returncode}",
-        "verdict": "PASS" if result.returncode == 0 else "FAIL",
+        "timed_out": timed_out,
+        "evidence": f"reproducer ({args.phase}) {'timed out' if timed_out else f'exited {rc}'}",
+        "verdict": "FAIL" if (timed_out or rc != 0) else "PASS",
     }
     saved = append_evidence(session_dir, record)
-    print(json.dumps({"verdict": saved["verdict"], "exit_code": result.returncode,
-                      "event_hash": saved["event_hash"]}))
-    return result.returncode
+    print(json.dumps({"verdict": saved["verdict"], "exit_code": rc,
+                      "timed_out": timed_out, "event_hash": saved["event_hash"]}))
+    return rc if not timed_out else 124
 
 
 if __name__ == "__main__":

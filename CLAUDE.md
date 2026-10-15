@@ -7,13 +7,14 @@ This file activates GRAVITAS for all Claude Code sessions in this project.
 
 ## Core Protocol
 
-GRAVITAS enforces 5 non-negotiable rules:
+GRAVITAS enforces 6 invariants (canonical: `skills/gravitas/SKILL.md`):
 
-1. **Read before write** — read the target file + imports + tests before any edit
-2. **Plan before act** — numbered plan with risks for any task touching 2+ files
-3. **Verify with proof** — cite actual command output, never claim without evidence
-4. **Push back once** — state the risk one time, then defer to user
-5. **No rationalization** — never say "this should work"; verify or admit you can't
+1. **Ground before mutating** — read the target file + imports + tests before any edit
+2. **Stay in declared scope** — writes outside `allowed_write_scope` are denied
+3. **Completion needs evidence** — fresh Gravitas-owned validator PASS only
+4. **Never exact-retry a failure** — change diagnosis, context, or strategy first
+5. **Satisfy the contract** — acceptance criteria + required validators gate completion
+6. **Say what you can't verify** — mark uncertain claims explicitly
 
 **One rule above all:** Report what actually happened, not what you intended.
 When you say something is done — that claim rests on output you observed.
@@ -23,13 +24,9 @@ If you did not check, say you did not check.
 
 ## Tier Classification
 
-| Tier | What | Protocol |
-|------|------|----------|
-| **0** | Trivial / reversible | Act immediately |
-| **1** | Moderate (function edits, new files) | Recon → plan → execute → verify |
-| **2** | High-stakes (schema, auth, production) | Full plan → adversarial critique → checkpoint → execute → verify |
-
-Classify UP when uncertain.
+Planning is conditional (`gravitas decide --signals '{...}'`):
+`direct` / `compact` / `deep` / `replan`. Classify UP when uncertain.
+Full policy: `skills/gravitas/SKILL.md` (canonical).
 
 ---
 

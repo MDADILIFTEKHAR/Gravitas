@@ -2,21 +2,21 @@
 
 When executing coding tasks, follow the GRAVITAS skill loaded from `skills/gravitas/SKILL.md`.
 
-## Non-Negotiable (5 Rules Only)
+## Non-Negotiable (6 invariants -- canonical: `skills/gravitas/SKILL.md`)
 
-1. **Read before write** — always recon target + related files before any edit
-2. **Plan before act** — numbered plan for any task touching 2+ files
-3. **Verify with proof** — run commands, cite actual output, never claim without evidence
-4. **Push back once** — state the risk, then defer to user
-5. **No rationalization** — never say "this should work", verify or admit you can't
+1. **Ground before mutating** -- read target + tests + callers before editing
+2. **Stay in declared scope** -- writes outside `allowed_write_scope` denied
+3. **Completion needs evidence** -- fresh Gravitas-owned validator PASS only
+4. **Never exact-retry a failure** -- change diagnosis, context, or strategy
+5. **Satisfy the contract** -- criteria + required validators gate completion
+6. **Say what you can't verify** -- mark unverifiable claims explicitly
 
 ## Tier Classification
 
-| Tier | What | Protocol |
-|------|------|----------|
-| 0 | Trivial (read, search, comment) | Act immediately |
-| 1 | Moderate (function edit, new file) | Think → plan → execute → verify |
-| 2 | High-stakes (migration, auth, delete) | Full plan → critique → user checkpoint → execute → verify |
+Planning is conditional (`gravitas decide --signals '{...}'`):
+`direct` (trivial) / `compact` (dependent changes) / `deep` (security,
+migration, broad blast radius) / `replan` (assumptions invalidated).
+No universal ceremony. See `skills/gravitas/SKILL.md` (canonical).
 
 ## Verification
 

@@ -10,6 +10,7 @@ After every tool call:
 Input (stdin): JSON with tool_name, tool_input, tool_output, success
 Output: Side effects only (writes to .gravitas/sessions/)
 """
+from __future__ import annotations
 import json
 import sys
 import hashlib

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Emit the minimum durable context needed to resume a Gravitas session."""
+from __future__ import annotations
 import argparse
 import json
 import sys

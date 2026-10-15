@@ -110,8 +110,8 @@ READ_BINARIES = frozenset({
     "echo", "pwd", "which", "wc", "diff", "jq",
 })
 
-#: Read-only git subcommands. Every other git subcommand mutates or worse.
-READ_GIT = frozenset({"status", "diff", "log", "show", "branch", "stash-list"})
+#: Read-only git subcommands (flagless only; flags are inspected separately).
+READ_GIT = frozenset({"status", "diff", "log", "show", "stash-list"})
 
 #: Test/type/lint/build-check commands: execute code but declare no writes.
 CHECK_COMMANDS = (
@@ -138,6 +138,63 @@ def _basename(argv0: str) -> str:
     return argv0.rsplit("/", 1)[-1]
 
 
+#: Wrappers/prefixes stripped before binary dispatch (no bypass by prefix).
+_WRAPPERS = frozenset({"env", "sudo", "command", "nohup", "time", "nice", "stdbuf"})
+
+
+def _strip_wrappers(argv: list) -> list:
+    """Remove env assignments and wrapper commands so `env rm x` etc. dispatch on the real binary."""
+    argv = list(argv)
+    while argv:
+        head = argv[0]
+        if "=" in head and not head.startswith("-") and "/" not in head.split("=")[0]:
+            argv = argv[1:]
+            continue
+        if _basename(head) in _WRAPPERS:
+            argv = argv[1:]
+            # env flags carry no command: -i, -u VAR, --unset=VAR
+            while argv and (argv[0] in ("-i", "--ignore-environment")
+                            or argv[0] in ("-u", "--unset")
+                            or argv[0].startswith("--unset=")):
+                if argv[0] in ("-u", "--unset") and len(argv) > 1:
+                    argv = argv[2:]
+                else:
+                    argv = argv[1:]
+            while argv and "=" in argv[0] and not argv[0].startswith("-"):
+                argv = argv[1:]
+            continue
+        break
+    return argv
+
+
+def _strip_git_globals(rest: list) -> tuple[list, list[str]]:
+    """Remove git global flags before subcommand dispatch; return (rest, dir_operands)."""
+    operands: list[str] = []
+    out: list[str] = []
+    index = 0
+    while index < len(rest):
+        token = rest[index]
+        if token == "-C" and index + 1 < len(rest):
+            operands.append(rest[index + 1])
+            index += 2
+        elif token.startswith("--git-dir=") or token.startswith("--work-tree="):
+            operands.append(token.split("=", 1)[1])
+            index += 1
+        elif token in ("--git-dir", "--work-tree") and index + 1 < len(rest):
+            operands.append(rest[index + 1])
+            index += 2
+        elif token == "-c" and index + 1 < len(rest):
+            index += 2
+        else:
+            out.append(token)
+            # First non-flag token is the subcommand; the rest are subcommand args.
+            if not token.startswith("-"):
+                out.extend(rest[index + 1:])
+                break
+            index += 1
+    return out, operands
+
+
 def _operand_paths(segment: str) -> list[str]:
     """Extract enumerable file operands (tee targets, dd of=).
 
@@ -160,7 +217,7 @@ def _operand_paths(segment: str) -> list[str]:
     return []
 
 
-def classify_shell_segment(segment: str) -> dict:
+def classify_shell_segment(segment: str, _depth: int = 0) -> dict:
     """Classify one pipeline segment (no top-level | ; &)."""
     try:
         argv = shlex.split(segment, posix=True)
@@ -168,6 +225,9 @@ def classify_shell_segment(segment: str) -> dict:
         return {"mutation": "mutation", "reason": "unparsable shell segment fails closed"}
     if not argv:
         return {"mutation": "none", "reason": "empty segment"}
+    argv = _strip_wrappers(argv)
+    if not argv:
+        return {"mutation": "mutation", "reason": "wrapper-only segment fails closed"}
     binary = _basename(argv[0])
     rest = argv[1:]
 
@@ -175,18 +235,58 @@ def classify_shell_segment(segment: str) -> dict:
         return {"mutation": "destructive", "executable": binary, "argv": argv,
                 "reason": f"{binary} is never read-only"}
     if binary == "git":
+        rest, _git_dirs = _strip_git_globals(rest)
         sub = rest[0] if rest else ""
         if sub in DESTRUCTIVE_GIT:
             return {"mutation": "destructive", "executable": "git", "argv": argv,
                     "reason": f"git {sub} destroys or overwrites state"}
+        if sub == "branch":
+            flags = set(rest[1:])
+            if flags & {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "--copy"}:
+                return {"mutation": "destructive", "executable": "git", "argv": argv,
+                        "reason": "git branch delete/rename destroys refs"}
+            return {"mutation": "none", "executable": "git", "argv": argv,
+                    "reason": "git branch is a read-only query"}
+        if sub == "stash":
+            verb = rest[1] if len(rest) > 1 else "push"
+            if verb in ("drop", "clear"):
+                return {"mutation": "destructive", "executable": "git", "argv": argv,
+                        "reason": f"git stash {verb} deletes stashes"}
+            if verb == "list":
+                return {"mutation": "none", "executable": "git", "argv": argv,
+                        "reason": "git stash list is a read-only query"}
+            return {"mutation": "mutation", "executable": "git", "argv": argv,
+                    "reason": f"git stash {verb} mutates repository state"}
+        if sub == "worktree":
+            verb = rest[1] if len(rest) > 1 else ""
+            if verb == "remove":
+                return {"mutation": "destructive", "executable": "git", "argv": argv,
+                        "reason": "git worktree remove deletes a worktree"}
+            if verb == "list":
+                return {"mutation": "none", "executable": "git", "argv": argv,
+                        "reason": "git worktree list is a read-only query"}
+            return {"mutation": "mutation", "executable": "git", "argv": argv,
+                    "reason": f"git worktree {verb} mutates worktrees"}
         if sub in {"add", "commit", "push", "merge", "rebase"}:
             return {"mutation": "mutation", "executable": "git", "argv": argv,
                     "reason": f"git {sub} mutates repository state"}
-        if sub in READ_GIT or sub == "stash" and rest[1:2] == ["list"]:
+        if sub in READ_GIT:
             return {"mutation": "none", "executable": "git", "argv": argv,
                     "reason": f"git {sub} is a read-only query"}
         return {"mutation": "mutation", "executable": "git", "argv": argv,
                 "reason": "unknown git subcommand fails closed"}
+    if binary == "xargs" and _depth < 2:
+        tail = [a for a in rest if not a.startswith("-") and a != "--"]
+        if tail:
+            # Classify the trailing command with the same machinery.
+            inner_result = classify_shell_segment(" ".join(tail), _depth=_depth + 1)
+            level = inner_result["mutation"]
+            if LEVELS.index(level) < LEVELS.index("mutation"):
+                level = "mutation"
+            return {"mutation": level, "executable": binary, "argv": argv,
+                    "reason": f"xargs executes: {inner_result.get('reason', '')}"}
+        return {"mutation": "mutation", "executable": binary, "argv": argv,
+                "reason": "xargs executes commands per input line"}
     if binary in {"rm", "mv"}:
         return {"mutation": "destructive", "executable": binary, "argv": argv,
                 "reason": f"{binary} deletes or moves state"}
@@ -199,8 +299,19 @@ def classify_shell_segment(segment: str) -> dict:
                 "reason": f"{binary} writes files"}
     if binary in {"python", "python3", "node", "deno", "ruby", "php", "perl", "bash", "sh"}:
         if rest[:1] in (["-c"], ["-e"], ["--eval"]):
-            return {"mutation": "mutation", "executable": binary, "argv": argv,
-                    "reason": f"{binary} {rest[0]} executes arbitrary code"}
+            payload = rest[1] if len(rest) > 1 else ""
+            inner_level = "mutation"
+            inner_reason = f"{binary} {rest[0]} executes arbitrary code"
+            if payload and _depth < 2:
+                try:
+                    inner = classify_shell(payload, _depth=_depth + 1)
+                    if LEVELS.index(inner["mutation"]) > LEVELS.index(inner_level):
+                        inner_level = inner["mutation"]
+                        inner_reason += f" (inner: {inner['reason']})"
+                except Exception:
+                    pass
+            return {"mutation": inner_level, "executable": binary, "argv": argv,
+                    "reason": inner_reason}
         for flag in ("-m",):
             if rest[:1] == [flag]:
                 return {"mutation": "mutation", "executable": binary, "argv": argv,
@@ -208,8 +319,14 @@ def classify_shell_segment(segment: str) -> dict:
         if any(arg.endswith(".py") or arg.endswith(".js") for arg in rest):
             return {"mutation": "mutation", "executable": binary, "argv": argv,
                     "reason": f"{binary} runs a script file"}
-        return {"mutation": "none", "executable": binary, "argv": argv,
-                "reason": f"{binary} version/flag query"}
+        if not rest or rest == ["-"]:
+            return {"mutation": "mutation", "executable": binary, "argv": argv,
+                    "reason": f"{binary} reads a script from stdin or starts a REPL"}
+        if rest[:1] in (["--version"], ["-V"], ["-h"], ["--help"]):
+            return {"mutation": "none", "executable": binary, "argv": argv,
+                    "reason": f"{binary} version/flag query"}
+        return {"mutation": "mutation", "executable": binary, "argv": argv,
+                "reason": f"{binary} invocation fails closed (not a known read-only query)"}
     if binary in {"npm", "pip", "pip3", "yarn", "pnpm", "cargo", "go"}:
         verb = rest[0] if rest else ""
         if verb in {"install", "publish", "add", "remove", "uninstall", "test", "run"}:
@@ -221,7 +338,9 @@ def classify_shell_segment(segment: str) -> dict:
         return {"mutation": "mutation", "executable": binary, "argv": argv,
                 "reason": f"{binary} {verb} is not a known read-only verb; fails closed"}
     if binary == "find":
-        if "-delete" in rest or "-exec" in rest:
+        if ("-delete" in rest or "-exec" in rest or "-execdir" in rest
+                or "-ok" in rest or "-okdir" in rest or "-fls" in rest or "-fprint" in rest
+                or any(a.startswith(("-exec", "-ok", "-fls", "-fprint", "-delete")) for a in rest)):
             return {"mutation": "destructive", "executable": binary, "argv": argv,
                     "reason": "find -delete/-exec acts on the tree"}
         return {"mutation": "none", "executable": binary, "argv": argv,
@@ -244,11 +363,13 @@ def classify_shell_segment(segment: str) -> dict:
             "reason": f"unknown executable {binary!r} fails closed"}
 
 
-def classify_shell(command: str) -> dict:
+def classify_shell(command: str, _depth: int = 0) -> dict:
     """Classify a full shell command line. Worst segment wins."""
     text = command.strip()
     if not text:
         return {"mutation": "none", "reason": "empty command"}
+    if _depth > 2:
+        return {"mutation": "mutation", "reason": "nested shell depth fails closed"}
     segments = [seg for seg in re.split(r"[;&|\r\n]+", text) if seg.strip()]
     worst = "none"
     reasons = []
@@ -274,6 +395,15 @@ def classify_shell(command: str) -> dict:
         for operand in operand_paths:
             if operand not in paths:
                 paths.append(operand)
+        try:
+            seg_argv = _strip_wrappers(shlex.split(segment, posix=True))
+        except ValueError:
+            seg_argv = []
+        if seg_argv and _basename(seg_argv[0]) == "git":
+            _, git_dirs = _strip_git_globals(seg_argv[1:])
+            for operand in git_dirs:
+                if operand not in paths:
+                    paths.append(operand)
     for segment in segments:
         result = classify_shell_segment(segment)
         if LEVELS.index(result["mutation"]) > LEVELS.index(worst):

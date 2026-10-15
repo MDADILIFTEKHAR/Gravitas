@@ -7,12 +7,31 @@
  * tool.execute.before, so force_ask resolves to a hard deny here -- a
  * documented, deliberate difference from Antigravity.
  *
- * Requires `gravitas` (pip install gravitas) and python3 on PATH. If the
- * guard is unreachable, the call is allowed with a warning and the reason
- * is logged -- check `gravitas doctor` in the project root.
+ * OpenCode V1/V2 both invoke `tool.execute.before` as
+ * `(input {tool, sessionID, callID}, output {args})`. Tool arguments live
+ * in the SECOND parameter; reading them from `input` yields `{}` and would
+ * silently bypass enforcement, so this shim requires `(input, output)`.
+ *
+ * Failure policy (fail-closed): when protection is enabled, an unreachable
+ * guard binary, timeout, nonzero exit, unparseable output, or unknown
+ * verdict DENIES the call. Read-only tools with explicit empty args are
+ * still evaluated by the guard; mutating tools (bash/edit/write/patch)
+ * with missing arguments are denied locally without consulting the guard.
+ * The shim never shells to itself (it invokes `gravitas guard` only).
+ *
+ * Requires `gravitas` (pip install gravitas) and python3 on PATH.
  */
 
 import { execFileSync } from "node:child_process";
+
+const MUTATING_TOOLS = new Set(["bash", "edit", "write", "patch"]);
+
+function hasMutatingArgs(tool, args) {
+  if (!MUTATING_TOOLS.has(tool)) return true;
+  if (!args || typeof args !== "object") return false;
+  if (tool === "bash") return Boolean(args.command);
+  return Boolean(args.filePath || args.path);
+}
 
 export function toEnvelope(tool, args, directory) {
   const envelope = {
@@ -46,6 +65,8 @@ export function toEnvelope(tool, args, directory) {
       envelope.tool = "grep_search";
       break;
     case "glob":
+      envelope.tool = "find_by_name";
+      break;
     case "list":
       envelope.tool = "list_dir";
       break;
@@ -57,24 +78,50 @@ export function toEnvelope(tool, args, directory) {
 
 function decide(directory, tool, args) {
   const envelope = toEnvelope(tool, args, directory);
+  let raw;
   try {
-    const out = execFileSync("gravitas", ["guard", "--envelope", JSON.stringify(envelope)], {
+    raw = execFileSync("gravitas", ["guard", "--envelope", JSON.stringify(envelope)], {
       encoding: "utf8",
       timeout: 10000,
       cwd: directory,
     });
-    return JSON.parse(out);
   } catch (error) {
-    return { decision: "allow", warning: `gravitas guard unreachable: ${error.message}` };
+    const reason = `gravitas guard unreachable (fail-closed): ${error.message}. Run gravitas doctor.`;
+    console.error(`[gravitas] deny ${tool}: ${reason}`);
+    return { decision: "deny", reason };
   }
+  let verdict;
+  try {
+    verdict = JSON.parse(raw);
+  } catch (error) {
+    const reason = `gravitas guard output unparseable (fail-closed): ${error.message}`;
+    console.error(`[gravitas] deny ${tool}: ${reason}`);
+    return { decision: "deny", reason };
+  }
+  if (!verdict || (verdict.decision !== "allow" && verdict.decision !== "deny")) {
+    const reason = `gravitas guard returned unknown verdict (fail-closed): ${raw.slice(0, 200)}`;
+    console.error(`[gravitas] deny ${tool}: ${reason}`);
+    return { decision: "deny", reason };
+  }
+  return verdict;
 }
 
 export const GravitasPlugin = async ({ directory }) => {
   return {
-    "tool.execute.before": async (input) => {
-      const verdict = decide(directory, input.tool, input.output?.args ?? input.args ?? {});
+    "tool.execute.before": async (input, output) => {
+      const tool = input?.tool;
+      const args = output?.args ?? {};
+      if (typeof tool !== "string" || !tool) {
+        throw new Error("Gravitas denied call: missing tool name in hook input");
+      }
+      if (!hasMutatingArgs(tool, args)) {
+        throw new Error(
+          `Gravitas denied ${tool}: mutating tool called with missing arguments (fail-closed)`
+        );
+      }
+      const verdict = decide(directory, tool, args);
       if (verdict && verdict.decision === "deny") {
-        throw new Error(`Gravitas denied ${input.tool}: ${verdict.reason || "policy decision"}`);
+        throw new Error(`Gravitas denied ${tool}: ${verdict.reason || "policy decision"}`);
       }
     },
   };

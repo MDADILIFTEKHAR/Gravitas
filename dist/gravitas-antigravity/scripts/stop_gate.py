@@ -10,12 +10,18 @@ Before allowing the agent to stop, verifies:
 Input (stdin): JSON with agent_response, session_state
 Output (stdout): JSON with decision: allow|continue and optional reason
 """
+from __future__ import annotations
 import json
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
 from session_context import session_dir_for_payload
+from evidence_chain import verify_chain
 from gravitas_evidence import criterion_states, evidence_deficit, is_fresh, owned_validator_pass
+
+#: Stop-gate attempt budget: after this many continue cycles the gate must
+#: terminate safely instead of looping forever. Termination is explicit
+#: unverified (decision allow + unverified:true), never a false PASS.
 
 
 def load_contract(session_dir: Path) -> dict:
@@ -97,7 +103,10 @@ def main():
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError:
-        print(json.dumps({"decision": "allow"}))
+        # Unparseable payload: cannot verify anything, so do not allow stop
+        # as verified completion.
+        print(json.dumps({"decision": "continue",
+                          "reason": "Completion gate: hook payload unparseable; cannot verify completion"}))
         return
 
     session_dir = session_dir_for_payload(payload)
@@ -118,14 +127,30 @@ def main():
         print(json.dumps({"decision": "continue", "reason": reason}))
         return
 
-    # Circuit breaker: stop automatic retries, but never fail open.
+    # Chain integrity comes first: a rewritten/tampered ledger must not gate
+    # allow no matter how convincing the verdicts look.
+    valid, chain_reason = verify_chain(session_dir / "evidence.jsonl")
+    if not valid:
+        reason = f"Completion gate: evidence chain invalid ({chain_reason}); refusing completion"
+        record_stop_gate_cycle(session_dir, "continue", reason)
+        print(json.dumps({"decision": "continue", "reason": reason}))
+        return
+
+    # Circuit breaker: after 3+ cycles terminate safely as EXPLICITLY
+    # UNVERIFIED (allows the host to stop without ever reporting false PASS).
     cycle_count = count_stop_gate_cycles(session_dir)
     if cycle_count >= 3:
-        record_stop_gate_cycle(session_dir, "continue", "circuit breaker: 3+ cycles")
+        states_cb = criterion_states(contract, evidence)
+        deficit_cb = evidence_deficit(contract, states_cb)
+        reason = ("Completion gate circuit breaker: 3+ verification cycles. "
+                  "Terminating as UNVERIFIED, not as completion: "
+                  + "; ".join(f"{d['criterion']} ({d['status']})" for d in deficit_cb[:5]))
+        record_stop_gate_cycle(session_dir, "allow-unverified", reason)
         print(json.dumps({
-            "decision": "continue",
-            "reason": "Completion gate circuit breaker: 3+ verification cycles. "
-                      "Automatic retries are exhausted; resolve or amend the contract manually."
+            "decision": "allow",
+            "unverified": True,
+            "reason": reason,
+            "deficit": deficit_cb,
         }))
         return
 
