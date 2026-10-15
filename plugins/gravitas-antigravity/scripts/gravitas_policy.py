@@ -136,6 +136,16 @@ VERIFICATION_DEPTHS = ("targeted", "impact", "full")
 DELEGATIONS = ("none", "investigator", "reviewer", "impact-auditor", "test-adversary")
 
 
+def _safe_int(value: object, default: int = 0) -> int:
+    """Coerce signal counts without crashing on strings/None/bools."""
+    if isinstance(value, bool):
+        return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def decide(signals: dict) -> dict:
     """Choose planning / context / verification / delegation from signals.
 
@@ -151,12 +161,22 @@ def decide(signals: dict) -> dict:
     if not isinstance(signals, dict):
         signals = {}
     uncertainty = signals.get("uncertainty", "low")
-    repeated = int(signals.get("repeated_failures", 0) or 0)
+    repeated = _safe_int(signals.get("repeated_failures", 0))
+    files = _safe_int(signals.get("files", 1), default=1)
+    if files < 1:
+        files = 1
+    high_stakes = bool(signals.get("destructive") or signals.get("security")
+                       or signals.get("auth") or signals.get("migration")
+                       or signals.get("broad_fanout"))
     reason_codes: list[str] = []
 
     if signals.get("read_only") or signals.get("trivial"):
-        reason_codes.append("read-only-or-trivial" if signals.get("read_only") else "trivial-localized")
-        return _record("direct", "target", "targeted", "none", reason_codes)
+        # Trivial/read-only fast-path yields to high-stakes signals: a
+        # "trivial" label must never buy minimal planning for destructive,
+        # security, auth, or migration work.
+        if not high_stakes:
+            reason_codes.append("read-only-or-trivial" if signals.get("read_only") else "trivial-localized")
+            return _record("direct", "target", "targeted", "none", reason_codes)
 
     if (signals.get("assumptions_invalidated") or signals.get("scope_expanded")
             or repeated >= 2 or signals.get("validator_failure") == "diagnosis-changed"):
@@ -172,9 +192,6 @@ def decide(signals: dict) -> dict:
             _record("replan", "dependency", "impact", "none", reason_codes),
             signals, high_stakes=True)
 
-    high_stakes = bool(signals.get("destructive") or signals.get("security")
-                       or signals.get("auth") or signals.get("migration")
-                       or signals.get("broad_fanout"))
     if high_stakes or uncertainty == "high":
         for key in ("destructive", "security", "auth", "migration", "broad_fanout"):
             if signals.get(key):
@@ -185,7 +202,6 @@ def decide(signals: dict) -> dict:
             _record("deep", "subsystem", "full" if high_stakes else "impact", "none", reason_codes),
             signals, high_stakes=high_stakes)
 
-    files = int(signals.get("files", 1) or 1)
     if signals.get("dependent_files") or signals.get("shared_module") or files > 1 or uncertainty == "medium":
         for key in ("dependent_files", "shared_module"):
             if signals.get(key):
@@ -226,13 +242,13 @@ def _with_delegation(record: dict, signals: dict, *, high_stakes: bool) -> dict:
 def _delegation(signals: dict, *, high_stakes: bool) -> dict:
     if signals.get("localization_uncertain"):
         return {"delegation": "investigator", "reason_codes": ["localization-uncertain"]}
-    if high_stakes and (signals.get("broad_fanout") or int(signals.get("files", 1) or 1) > 3):
+    if high_stakes and (signals.get("broad_fanout") or _safe_int(signals.get("files", 1), default=1) > 3):
         return {"delegation": "impact-auditor", "reason_codes": ["blast-radius-uncertain"]}
     if high_stakes:
         return {"delegation": "reviewer", "reason_codes": ["risky-implementation"]}
     if signals.get("strict") and signals.get("security"):
         return {"delegation": "test-adversary", "reason_codes": ["strict-security"]}
-    if int(signals.get("independent_workstreams", 1) or 1) > 1:
+    if _safe_int(signals.get("independent_workstreams", 1), default=1) > 1:
         return {"delegation": "none",
                 "reason_codes": ["parallel-workstreams-require-explicit-split"]}
     return {}

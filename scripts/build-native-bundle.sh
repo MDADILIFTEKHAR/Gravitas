@@ -22,4 +22,18 @@ cp -R "$repo_root/plugins/gravitas-antigravity/agents/." "$bundle/agents/"
 cp -R "$repo_root/plugins/gravitas-antigravity/rules/." "$bundle/rules/"
 
 find "$bundle" -type d -name '__pycache__' -prune -exec rm -rf {} +
+# Deterministic content manifest: sorted relative paths + sha256, so drift
+# review distinguishes real changes from rebuild noise.
+python3 - "$bundle" <<'EOF'
+import hashlib
+import sys
+from pathlib import Path
+bundle = Path(sys.argv[1])
+lines = []
+for path in sorted(bundle.rglob("*")):
+    if path.is_file() and path.name != "SHA256SUMS":
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        lines.append(f"{digest}  {path.relative_to(bundle).as_posix()}")
+(bundle / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+EOF
 echo "Built $bundle"

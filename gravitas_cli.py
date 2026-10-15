@@ -237,6 +237,28 @@ def cmd_repro(args: argparse.Namespace) -> int:
     return subprocess.run(command, check=False).returncode
 
 
+def cmd_resolve_failure(args: argparse.Namespace) -> int:
+    """Mark a failed-approach fingerprint resolved after its cause is gone.
+
+    Appends a resolution marker to failures.jsonl; pre_tool then stops
+    banning that exact fingerprint. The original failure record is kept.
+    """
+    from datetime import datetime, timezone
+    session_dir = Path(args.session_dir)
+    if not session_dir.is_dir():
+        print(json.dumps({"ok": False, "error": f"not a session directory: {session_dir}"}))
+        return 1
+    if not args.fingerprint or not args.reason:
+        print(json.dumps({"ok": False, "error": "fingerprint and reason are both required"}))
+        return 1
+    marker = {"fingerprint": args.fingerprint, "resolved": True, "reason": args.reason,
+              "timestamp": datetime.now(timezone.utc).isoformat()}
+    with (session_dir / "failures.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(marker) + "\n")
+    print(json.dumps({"ok": True, "fingerprint": args.fingerprint}))
+    return 0
+
+
 def cmd_edge_cases(args: argparse.Namespace) -> int:
     try:
         from gravitas_verify import expand_cases
@@ -556,6 +578,11 @@ def main() -> int:
     repro.add_argument("--cwd", default=".")
     repro.add_argument("command", nargs=argparse.REMAINDER)
     repro.set_defaults(func=cmd_repro)
+    resolve = sub.add_parser("resolve-failure", help="Mark a failed fingerprint resolved so it can be retried")
+    resolve.add_argument("--session-dir", required=True)
+    resolve.add_argument("--fingerprint", required=True)
+    resolve.add_argument("--reason", required=True)
+    resolve.set_defaults(func=cmd_resolve_failure)
     edge = sub.add_parser("edge-cases", help="Expand seed values into deterministic boundary variants")
     edge.add_argument("--seeds", default="[]", help="JSON array of seed values")
     edge.set_defaults(func=cmd_edge_cases)

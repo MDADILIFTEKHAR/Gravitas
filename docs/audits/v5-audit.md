@@ -91,3 +91,25 @@ Prior fixes verified present: PR #1 (shell injection), PR #2 squash 297a613 (unp
 ## Safety notes
 - No `rm -rf`, `git reset --hard`, force push, cloud changes, or home-directory benchmark runs. All dangerous inputs tested as data in temp dirs. Branch `v5-audit-hardening` local only; merge/push requires explicit authorization.
 
+---
+
+# V5 round-2 record (same branch)
+
+## Implemented
+- C1 `decide()`: high-stakes flags (destructive/security/auth/migration/broad_fanout) now override the trivial/read_only fast-path (`{trivial,destructive}` → deep, was direct); all count signals coerced via `_safe_int` (garbage strings → defaults, no traceback). Plain trivial/read_only still direct. Tests: DecideBorderlineTests.
+- C3 recovery: `pre_tool` honors `resolved:true` markers (aligned with stop_gate/post_invocation/resume); new `gravitas resolve-failure --session-dir --fingerprint --reason` appends a marker, keeping the original record. Previously the exact-fingerprint ban was permanent with no recovery path. Tests: ban → resolve → allow; unresolved still bans.
+- C2 measured, no change: `build_index` 200-file synthetic repo 0.22s, this repo (102 files) 0.53s; refresh/drop/add covered by existing RepoGraphTests. No caching added (correctness over marginal speed).
+- C4 verified, no change: coordinator retired to conditional delegation; agent roles conditional with quota justification; no host claims native subagents falsely (OpenCode agent frontmatter uses host `mode: subagent`, fixture-pinned).
+- C5 verified, no change: conversation isolation pinned by existing test; sessions are separate directories by construction.
+- D4 `SHA256SUMS` content manifest in build script (sorted, deterministic across rebuilds) + CI asserts its presence; `git diff --exit-code` drift check retained.
+- E2 SkillReferenceTests: every `references|resources/*.md` linked from SKILL.md exists on disk and ships in the wheel manifest.
+- B1-live: official plugin docs confirm `.opencode/plugins/` auto-load + `(input, output)` hook shape verbatim; live model-backed run NOT performed (paid quota, needs budget authorization) — recorded as blocked, not claimed.
+- F4 measured: hook invocation ~15ms median (python startup bound), index 0.5s one-time + cached refresh. No bottlenecks warranting correctness-risky caching.
+- G1/G2 verified, no change: fast/balanced/strict profiles differ meaningfully (existing profile tests); guard/shim failures emit what/which/remediation.
+
+## Verification (round 2, observed)
+- Full suite: 188 tests OK (182 + 6 new)
+- Rebuild ×2: SHA256SUMS stable; `git diff --exit-code -- dist` clean after commit
+- `agy plugin validate` still RC 0 (canonical + dist) — rerun at final gate
+
+

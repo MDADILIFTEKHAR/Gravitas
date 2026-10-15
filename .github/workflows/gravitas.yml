@@ -64,6 +64,7 @@ jobs:
           test -f dist/gravitas-antigravity/scripts/pre_tool.py
           test -f dist/gravitas-antigravity/scripts/gravitas_action.py
           test -f dist/gravitas-antigravity/scripts/gravitas_policy.py
+          test -f dist/gravitas-antigravity/SHA256SUMS
           git diff --exit-code -- dist/gravitas-antigravity
 
       - name: Validate public README claims
