@@ -51,15 +51,22 @@ def _copy_tree(source: Path, dest: Path, installed: list, skipped: list) -> None
         installed.append(str(target))
 
 
-def _merge_json(target: Path, fragment: dict, installed: list, skipped: list) -> None:
+def _merge_json(target: Path, fragment: dict, installed: list, skipped: list,
+                warnings: list | None = None) -> None:
     current = {}
     if target.exists():
         try:
             current = json.loads(target.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            current = {}
-    if not isinstance(current, dict):
-        current = {}
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            current = None
+        if not isinstance(current, dict):
+            # Never overwrite a config we cannot parse (comments, trailing
+            # commas, non-object root): that would silently destroy user data.
+            skipped.append(str(target))
+            if warnings is not None:
+                warnings.append(f"{target} is not valid JSON; left untouched. "
+                                "Merge the Gravitas permission profile manually.")
+            return
     changed = False
     for key, value in fragment.items():
         if key not in current:
@@ -93,6 +100,7 @@ def init_opencode(root: Path, *, profile: str = "balanced", source_root: Path) -
     adapter = source_root / "adapters" / "opencode"
     installed: list[str] = []
     skipped: list[str] = []
+    warnings: list[str] = []
 
     for skill in ("gravitas", "gravitas-highstakes"):
         _copy_tree(source_root / "skills" / skill, root / ".agents" / "skills" / skill,
@@ -105,7 +113,7 @@ def init_opencode(root: Path, *, profile: str = "balanced", source_root: Path) -
         return {"ok": False, "error": f"unknown profile: {profile}"}
     fragment = json.loads(profile_path.read_text(encoding="utf-8"))
     fragment.pop("$schema", None)
-    _merge_json(root / "opencode.json", fragment, installed, skipped)
+    _merge_json(root / "opencode.json", fragment, installed, skipped, warnings)
 
     snippet = (adapter / "AGENTS-snippet.md").read_text(encoding="utf-8")
     _ensure_agents_block(root / "AGENTS.md", snippet, installed, skipped)
@@ -124,7 +132,7 @@ def init_opencode(root: Path, *, profile: str = "balanced", source_root: Path) -
     return {"ok": True, "host": "opencode", "profile": profile,
             "root": str(root), "installed": installed, "skipped": skipped,
             "detected_validators": [v["id"] for v in ecosystem["validators"]],
-            "detected_ci": ecosystem["ci"]}
+            "detected_ci": ecosystem["ci"], "warnings": warnings}
 
 
 def init_antigravity(root: Path, *, source_root: Path) -> dict:

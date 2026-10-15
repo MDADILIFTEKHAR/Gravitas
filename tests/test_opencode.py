@@ -28,6 +28,24 @@ def frontmatter(path: Path) -> dict:
 
 
 class InitTests(unittest.TestCase):
+    def test_init_opencode_preserves_unparseable_config(self):
+        original = '{\n  // my config\n  "model": "x",\n}\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "opencode.json").write_text(original, encoding="utf-8")
+            result = init_opencode(root, profile="balanced", source_root=ROOT)
+            self.assertTrue(result["ok"], result)
+            self.assertEqual((root / "opencode.json").read_text(encoding="utf-8"), original)
+            self.assertIn(str(root / "opencode.json"), result["skipped"])
+            self.assertTrue(result["warnings"])
+
+    def test_init_opencode_preserves_non_object_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "opencode.json").write_text("[1, 2]\n", encoding="utf-8")
+            init_opencode(root, profile="balanced", source_root=ROOT)
+            self.assertEqual((root / "opencode.json").read_text(encoding="utf-8"), "[1, 2]\n")
+
     def test_init_opencode_full_scaffold(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = init_opencode(Path(tmp), profile="balanced", source_root=ROOT)
