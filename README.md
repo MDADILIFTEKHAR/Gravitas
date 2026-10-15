@@ -1,8 +1,8 @@
 # GRAVITAS
 
-**An open-source reliability runtime for coding agents — measured, not claimed.**
+**Makes Gemini work with Claude-grade engineering discipline — read first, plan by risk, prove it with evidence, never fake "done".**
 
-GRAVITAS is an open-source Agent Skill and optional Google Antigravity runtime for coding work. It asks an agent to inspect before editing, plan in proportion to risk, verify against real output, recover from failures, and report only what the evidence supports.
+GRAVITAS is an open-source reliability runtime for AI coding agents. It wraps your agent's workflow in a harness that demands reconnaissance before edits, risk-aware plans, externally-executed proof for every claim, and honest failure recovery. It works through portable Agent Skills, and optionally enforces the rules mechanically via Antigravity hooks or an OpenCode plugin shim.
 
 GRAVITAS changes the engineering process, not model weights.
 
@@ -10,130 +10,73 @@ GRAVITAS changes the engineering process, not model weights.
 
 > Research preview: comparative performance is not yet measured.
 
-For Antigravity IDE, install the recommended Core skill in the current project:
+## The 30-second pitch
+
+Your agent, without Gravitas:
+
+```text
+"fix the login bug" → edits 3 files → "done ✓"
+(did it run the tests? did it read the file first? nobody knows)
+```
+
+Your agent, with Gravitas:
+
+```text
+"fix the login bug" → reads code + tests → writes a contract →
+scoped edits → runs a real validator → stale proof rejected →
+fresh PASS → "done ✓ (receipts attached)"
+```
+
+Same model. Different process. Auditable results.
+
+## Install (pick one)
+
+**Core** — portable skill, works anywhere. Recommended start:
 
 ```bash
 npx skills add udaysharmadev/Gravitas --skill gravitas --agent antigravity --yes
 ```
-
-Then say:
 
 ```text
 Use Gravitas to fix this bug and verify the result.
 ```
 
-## Install
-
-### Gravitas Core — recommended
-
-Core is portable behavioral policy. It works through Agent Skills; it does not mechanically enforce tool calls or completion.
-
-```bash
-npx skills add udaysharmadev/Gravitas --skill gravitas --agent antigravity --yes
-```
-
-For the terminal product, use `--agent antigravity-cli` instead. The shorter `npx skills add udaysharmadev/Gravitas` is also valid skills.sh syntax, but the explicit command above makes the intended Antigravity target and single Core skill unambiguous.
-
-Check the installed Core bundle:
-
-```bash
-python3 .agents/skills/gravitas/scripts/doctor.py
-```
-
-### Gravitas Native — Antigravity enforcement
-
-Native is Core plus an Antigravity plugin with task-contract, evidence, and completion-gate hooks. It is for teams that want defense-in-depth workflow checks in addition to agent instructions.
+**Native** — Core + real enforcement inside Antigravity (PreToolUse / PostToolUse / Stop hooks):
 
 ```bash
 git clone --depth 1 https://github.com/udaysharmadev/Gravitas.git
 cd Gravitas
 bash scripts/build-native-bundle.sh
 agy plugin install "$PWD/dist/gravitas-antigravity"
+agy plugin validate "$PWD/dist/gravitas-antigravity"
 ```
 
-Validate the bundle, then verify staging:
+**OpenCode** — one command, permission profile + guard shim:
 
 ```bash
-agy plugin validate "$PWD/dist/gravitas-antigravity"
-agy plugin list
+gravitas init --host opencode --profile balanced
 ```
 
-Validation reports `gravitas-native` components; the list confirms it is staged. In the `agy` TUI, `/hooks` shows the active hook registrations. See the complete, version-aware [installation guide](docs/install.md).
+Full guide: [install](docs/install.md) · [quickstart](docs/quickstart.md) · [hosts](docs/hosts.md)
 
-### Or just ask Antigravity
+## The 6 invariants (the whole game)
 
-Copy this into an Antigravity conversation:
+| # | Rule | What it means in practice |
+|---|---|---|
+| 1 | Ground before mutating | Read target + tests + callers before any edit. No assumed file state. |
+| 2 | Stay in declared scope | Writes outside `allowed_write_scope` are denied, not debated. |
+| 3 | Completion needs evidence | Only a fresh, Gravitas-owned validator PASS counts. Self-review doesn't. |
+| 4 | Never exact-retry a failure | Same fingerprint fails twice → banned until the cause changes (`resolve-failure` re-arms it). |
+| 5 | Satisfy the contract | Acceptance criteria + required validators gate completion. "Tests passed" isn't a contract. |
+| 6 | Say what you can't verify | Uncertain? Mark it. Fabricated certainty is the real bug. |
 
-```text
-Install GRAVITAS from https://github.com/udaysharmadev/Gravitas using its documented installation guide. Prefer Gravitas Core in this workspace unless I explicitly request Native. Verify the installed Core skill with its doctor script, tell me which mode is active, and do not alter unrelated Antigravity configuration.
-```
+## What it actually does for you
 
-## Use it
-
-You do not need a ceremonial prompt. GRAVITAS is designed to activate for implementation, debugging, refactoring, review, and migration work. Naming it explicitly is useful when you want to be certain of the workflow.
-
-```text
-Use Gravitas to find and fix why pagination occasionally skips records. Verify the fix.
-```
-
-```text
-Use Gravitas to add rate limiting to this API without breaking existing clients.
-```
-
-```text
-Use Gravitas to review this authentication change for correctness and regression risk. Do not modify files.
-```
-
-```text
-Use Gravitas in plan mode. Investigate migrating this project to PostgreSQL and give me an implementation plan. Do not change anything.
-```
-
-## What GRAVITAS changes
-
-```text
-Without: task → edits → “done”
-
-With:    task → contract → reconnaissance → scoped change
-        → external validation → recovery when needed
-        → evidence-backed completion
-```
-
-It does not assume a model is careless. It makes the engineering loop explicit: strong model + a better harness can produce a more auditable process.
-
-## Core vs Native vs OpenCode
-
-| Capability | Core | Native (Antigravity) | OpenCode |
-|---|:---:|:---:|:---:|
-| Agent Skills compatible | ✓ | ✓ | ✓ |
-| Planning, read-before-write, verification policy | Instruction | Instruction + hook checks | Instruction + permissions |
-| Adaptive effort and plan-mode guidance | Instruction | Instruction + action lock | Instruction + permission profiles |
-| Evidence ledger | — | Enforced runtime record | Manual via CLI |
-| Pre-tool checks | — | Enforced where host hooks apply | Shim + permissions |
-| Completion gate | — | Enforced where host hooks apply | Manual (`summarize` + evidence) |
-
-Core is the practical default. Native is optional, and its hooks are workflow controls—not an operating-system sandbox. OpenCode setup is one command: `gravitas init --host opencode` (see [quickstart](docs/quickstart.md) and [hosts](docs/hosts.md)).
-
-## Evidence
-
-There are **30 registered task specifications across 10 planned lanes** in GravitasBench. They are benchmark design and infrastructure, not completed model results. No public FSR, requirement-coverage, false-completion, token, time, Claude-gap, or model-ranking number belongs in this README yet.
-
-The repository does verify implementation behavior: the test suite covers action locking, scope checks, session isolation, evidence-chain tampering, completion gating, recovery state, schemas, and benchmark plumbing. Those are runtime tests, not evidence of model performance.
-
-When comparative results are eligible, they will disclose the task corpus, unique-task and run counts, model and effort, Antigravity and GRAVITAS versions, date, raw trajectories, methodology, uncertainty, and overhead. Results will apply only to that listed configuration—not as universal model rankings.
-
-Read the [benchmark protocol](benchmarks/README.md), [release gates](docs/production-readiness.md), and [install verification record](docs/install-verification.md).
-
-## Why harness engineering?
-
-The research case is modest and concrete:
-
-- [ReAct](https://openreview.net/forum?id=WE_vluYUL-X) supports grounding reasoning in actions and observations.
-- [Plan-and-Solve](https://aclanthology.org/2023.acl-long.147/) motivates explicit decomposition for multi-step reasoning; applying that to coding is a GRAVITAS hypothesis.
-- [Huang et al.](https://openreview.net/forum?id=IkmD3fKBPQ) found that unaided self-correction can fail on studied reasoning tasks, which is why GRAVITAS privileges external validators.
-- [SWE-bench](https://openreview.net/forum?id=VTF8yNQM66) motivates testing repository state instead of trusting final prose.
-- Recent [Harness-Bench](https://arxiv.org/abs/2605.27922) and [Harness-IF](https://arxiv.org/abs/2608.11727) preprints motivate evaluating model-plus-harness configurations as systems.
-
-These sources motivate mechanisms. They do not prove a GRAVITAS effect size. The full distinction between research evidence, benchmark evidence, and project hypotheses is in [docs/research.md](docs/research.md).
+- **Stops silent destruction** — `git branch -D`, `rm -rf` smuggled behind `sudo`/`env`/newlines, `find -execdir` tricks: classified destructive, denied or gated. 188 tests say so.
+- **Stops fake "done"** — tampered ledgers fail the chain check, stale PASSes (code changed after the green run) are rejected, and the Stop gate loops boundedly then terminates explicitly *unverified* — never a false PASS.
+- **Stops config clobbering** — `init` never overwrites an unparseable `opencode.json`, never creates a duplicate next to `opencode.jsonc`, validates profiles before touching anything.
+- **Stops silent bypasses** — guard unreachable? Deny. Contract missing or corrupt? Mutating actions denied, reads pass with a warning. No fail-open anywhere.
+- **Stays out of the way** — trivial one-file fix → `direct` planning, zero ceremony. Auth migration with 12 files → `deep` + reviewer. Effort follows risk, not ritual.
 
 ## How it works
 
@@ -151,52 +94,30 @@ flowchart LR
   N -. gate .-> G
 ```
 
-Core supplies the behavioral policy. Native wraps selected Antigravity tool events with local checks. For implementation detail, see [architecture](docs/architecture.md).
+**Core** = behavioral policy via Agent Skills (any host). **Native** = Core + Antigravity plugin that mechanically checks tool calls, records hash-chained evidence, and gates stopping. **OpenCode** = Core + permission profiles + a `tool.execute.before` shim backed by the same policy engine. Capability matrix: [hosts](docs/hosts.md) · concepts: [concepts](docs/concepts.md) · config: [configuration](docs/configuration.md).
 
-## Adaptive execution
+## Proof, not promises
 
-GRAVITAS scales effort with risk, uncertainty, ambiguity, blast radius, and failed attempts. A read-only question should not trigger a committee; an auth, schema, or destructive change should receive deeper reconnaissance and stronger verification.
+- **188 tests, green** — action locking, shell-bypass corpus, scope escapes, session isolation, evidence tampering, stale gates, packaging, CLI, fuzz. Run them: `python -m unittest discover -s tests`
+- **Security model, honestly**: [SECURITY.md](SECURITY.md) — hooks are workflow controls, not a sandbox; hash chains are tamper-evident, not tamper-proof.
+- **Benchmark honesty**: **30 registered task specifications across 10 planned lanes** in GravitasBench — design and infrastructure, not model results. No model-ranking number belongs here yet. Methodology: [benchmark](docs/benchmark.md) · gates: [production-readiness](docs/production-readiness.md).
+- Research grounding (mechanisms, not effect sizes): ReAct, Plan-and-Solve, SWE-bench and friends in [research](docs/research.md). Architecture decisions: [adr](docs/adr/). Latest hardening audit: [v5-audit](docs/audits/v5-audit.md).
 
-The built-in profiles are `eco`, `balanced` (the design default), `deep`, and `team`. They describe intended process cost; no profile performance advantage is claimed before comparative data exists.
+## Docs
 
-## Verification and trust
-
-The Core doctor reports the installed skill path and content hash:
-
-```bash
-python3 .agents/skills/gravitas/scripts/doctor.py
-```
-
-Update Core with:
-
-```bash
-npx skills update gravitas --project --yes
-```
-
-Update Native by pulling the repository, rebuilding the bundle, and re-running the same `agy plugin install` command. Full uninstall instructions are in [docs/install.md](docs/install.md).
-
-Native hooks are defense in depth. Shell classification is tokenizer-based with capability levels, not a regex denylist — but hooks still do not replace host permissions, sandboxing, code review, or CI. See [SECURITY.md](SECURITY.md).
-
-## Documentation
-
-- [Quickstart](docs/quickstart.md) (Core, Native, OpenCode)
-- [Concepts](docs/concepts.md) (contract, context, evidence, policy, recovery)
-- [Hosts](docs/hosts.md) (capability differences, honestly)
-- [Configuration](docs/configuration.md) (profiles, overrides, contracts)
-- [Benchmark methodology](docs/benchmark.md)
-- [Install and troubleshooting](docs/install.md)
-- [Contributing](docs/contributing.md) (architecture + test expectations)
-- [Security policy](SECURITY.md) (what is and is not enforced)
-- [Research foundations](docs/research.md)
-- [Architecture decisions](docs/adr/)
+[Quickstart](docs/quickstart.md) · [Concepts](docs/concepts.md) · [Hosts](docs/hosts.md) · [Configuration](docs/configuration.md) · [Benchmark](docs/benchmark.md) · [Install & troubleshooting](docs/install.md) · [Contributing](docs/contributing.md) · [Security](SECURITY.md) · [Research](docs/research.md) · [ADRs](docs/adr/)
 
 ## Contributing
 
-Contributions that improve evidence are especially useful: licensed benchmark tasks, hidden deterministic validators, live Antigravity compatibility checks, privacy review, and independent replications. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributors so far: Uday Sharma, Devansh Singh (#1), Manan Bharti (#2, #3) — see [CONTRIBUTORS.md](CONTRIBUTORS.md). Most useful contributions: licensed benchmark tasks, hidden deterministic validators, live host compatibility checks, privacy review, independent replications. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Citation
 
 Use [CITATION.cff](CITATION.cff) and pin a commit until a versioned release and archived benchmark dataset exist.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=udaysharmadev/Gravitas&type=timeline)](https://star-history.com/#udaysharmadev/Gravitas&timeline)
 
 ## License
 
