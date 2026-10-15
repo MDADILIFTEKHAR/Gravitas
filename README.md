@@ -1,8 +1,8 @@
 # GRAVITAS
 
-**Makes Gemini work with Claude-grade engineering discipline — read first, plan by risk, prove it with evidence, never fake "done".**
+Gives Gemini Claude-grade engineering discipline: read before writing, plan in proportion to risk, verify against executed evidence, and report only what the evidence supports.
 
-GRAVITAS is an open-source reliability runtime for AI coding agents. It wraps your agent's workflow in a harness that demands reconnaissance before edits, risk-aware plans, externally-executed proof for every claim, and honest failure recovery. It works through portable Agent Skills, and optionally enforces the rules mechanically via Antigravity hooks or an OpenCode plugin shim.
+GRAVITAS is an open-source reliability runtime for AI coding agents. It ships as portable Agent Skills plus optional host enforcement (an Antigravity plugin and an OpenCode shim) backed by one policy engine. The goal is a coding workflow whose claims can be checked after the fact: scoped changes, executed validators, tamper-evident records, and a completion gate that refuses to pass on stale or missing proof.
 
 GRAVITAS changes the engineering process, not model weights.
 
@@ -10,38 +10,29 @@ GRAVITAS changes the engineering process, not model weights.
 
 > Research preview: comparative performance is not yet measured.
 
-## The 30-second pitch
+## Problem
 
-Your agent, without Gravitas:
+Coding agents fail in predictable ways. They edit files they never read. They make broad changes for narrow tasks. They run no tests, or run them before the final edit and report the old green result. They retry the exact call that just failed. And they announce completion that no record supports. Each of these is a process failure, not a capability failure: the model could have done the right thing, but nothing in the loop required it.
 
-```text
-"fix the login bug" → edits 3 files → "done ✓"
-(did it run the tests? did it read the file first? nobody knows)
-```
+Gravitas puts those requirements into the loop. Six invariants state them. Skills teach them. Hooks and guards enforce the subset that can be checked mechanically. Validators produce the evidence. A gate reads the evidence before the session is allowed to stop.
 
-Your agent, with Gravitas:
+## Installation
 
-```text
-"fix the login bug" → reads code + tests → writes a contract →
-scoped edits → runs a real validator → stale proof rejected →
-fresh PASS → "done ✓ (receipts attached)"
-```
+Three setups, in order of increasing machinery. All three share the same six invariants.
 
-Same model. Different process. Auditable results.
-
-## Install (pick one)
-
-**Core** — portable skill, works anywhere. Recommended start:
+**Core.** Portable behavioral policy delivered as Agent Skills. No enforcement, no dependencies beyond the skill files. This is the recommended default.
 
 ```bash
 npx skills add udaysharmadev/Gravitas --skill gravitas --agent antigravity --yes
 ```
 
+Then address the agent directly:
+
 ```text
 Use Gravitas to fix this bug and verify the result.
 ```
 
-**Native** — Core + real enforcement inside Antigravity (PreToolUse / PostToolUse / Stop hooks):
+**Native.** Core plus an Antigravity plugin (`gravitas-native`) with PreToolUse, PostToolUse, PostInvocation, and Stop hooks. For teams that want tool calls checked and completion gated by the runtime rather than by instruction alone.
 
 ```bash
 git clone --depth 1 https://github.com/udaysharmadev/Gravitas.git
@@ -51,65 +42,116 @@ agy plugin install "$PWD/dist/gravitas-antigravity"
 agy plugin validate "$PWD/dist/gravitas-antigravity"
 ```
 
-**OpenCode** — one command, permission profile + guard shim:
+**OpenCode.** Core plus a permission profile and a `tool.execute.before` shim (`gravitas guard`) that applies the same policy engine to OpenCode tool calls.
 
 ```bash
 gravitas init --host opencode --profile balanced
 ```
 
-Full guide: [install](docs/install.md) · [quickstart](docs/quickstart.md) · [hosts](docs/hosts.md)
+Detailed instructions, update paths, and uninstall steps are in [docs/install.md](docs/install.md). First tasks are in [docs/quickstart.md](docs/quickstart.md).
 
-## The 6 invariants (the whole game)
+## The six invariants
 
-| # | Rule | What it means in practice |
+These are the entire contract. Everything else in the repository implements them.
+
+| # | Invariant | Consequence |
 |---|---|---|
-| 1 | Ground before mutating | Read target + tests + callers before any edit. No assumed file state. |
-| 2 | Stay in declared scope | Writes outside `allowed_write_scope` are denied, not debated. |
-| 3 | Completion needs evidence | Only a fresh, Gravitas-owned validator PASS counts. Self-review doesn't. |
-| 4 | Never exact-retry a failure | Same fingerprint fails twice → banned until the cause changes (`resolve-failure` re-arms it). |
-| 5 | Satisfy the contract | Acceptance criteria + required validators gate completion. "Tests passed" isn't a contract. |
-| 6 | Say what you can't verify | Uncertain? Mark it. Fabricated certainty is the real bug. |
+| 1 | Ground before mutating | The agent reads the target, its tests, and its callers before editing. File state is observed, never assumed. |
+| 2 | Stay in declared scope | Each task declares `allowed_write_scope`. Writes outside it are denied. A wrong scope is amended openly, not routed around. |
+| 3 | Completion needs evidence | A criterion is complete only when a Gravitas-owned validator passed after the last relevant mutation. Prior green runs, self-review, and prose summaries do not count. |
+| 4 | Never exact-retry a failure | A failed approach may be retried only after the diagnosis, context, or strategy changes. Byte-identical retries are blocked; `gravitas resolve-failure` re-arms a fingerprint once a transient cause is resolved. |
+| 5 | Satisfy the contract | Acceptance criteria and their required validators gate completion. A passing test suite for unrelated code proves nothing about the task. |
+| 6 | Say what you cannot verify | Claims without backing are labeled as such. Uncertainty lowers confidence instead of being rounded up to certainty. |
 
-## What it actually does for you
+Planning effort follows risk, not ritual. `gravitas decide --signals '{...}'` emits a machine-readable record (`direct`, `compact`, `deep`, `replan`) with reason codes. A one-line fix in one file is `direct`. An auth migration across twelve files is `deep` with a reviewer. The profiles `eco`, `balanced`, `deep`, and `team` set intended process cost. None of them claims a performance advantage; that awaits measured comparison.
 
-- **Stops silent destruction** — `git branch -D`, `rm -rf` smuggled behind `sudo`/`env`/newlines, `find -execdir` tricks: classified destructive, denied or gated. 188 tests say so.
-- **Stops fake "done"** — tampered ledgers fail the chain check, stale PASSes (code changed after the green run) are rejected, and the Stop gate loops boundedly then terminates explicitly *unverified* — never a false PASS.
-- **Stops config clobbering** — `init` never overwrites an unparseable `opencode.json`, never creates a duplicate next to `opencode.jsonc`, validates profiles before touching anything.
-- **Stops silent bypasses** — guard unreachable? Deny. Contract missing or corrupt? Mutating actions denied, reads pass with a warning. No fail-open anywhere.
-- **Stays out of the way** — trivial one-file fix → `direct` planning, zero ceremony. Auth migration with 12 files → `deep` + reviewer. Effort follows risk, not ritual.
+## Enforcement semantics
 
-## How it works
+Instruction is not enforcement, so the repository distinguishes the two everywhere. What the skill asks for and what the runtime guarantees are documented separately per host.
 
-```mermaid
-flowchart LR
-  U[User task] --> S[GRAVITAS skill]
-  S --> C[Task contract]
-  C --> P[Adaptive execution]
-  P --> T[Agent tools]
-  T --> V[Validators and evidence]
-  V --> G{Completion gate}
-  G -->|missing proof| P
-  G -->|evidence complete| R[Verified result]
-  N[Native hooks] -. guard .-> T
-  N -. gate .-> G
+| Capability | Core (any host) | Native (Antigravity) | OpenCode |
+|---|---|---|---|
+| Planning and read-before-write policy | Instruction | Instruction plus action lock | Instruction plus permission profiles |
+| Write and scope gating | None | Hook deny | Shim deny plus host permissions |
+| Destructive confirmation | None | `force_ask` | Hard deny (no ask channel exists) |
+| Evidence ledger | None | Automatic, hash-linked | Manual, via CLI |
+| Completion gate | None | Automatic Stop hook | Manual (`summarize` plus evidence) |
+| Session isolation | None | Per conversation | Per workspace contract |
+| Guard dependency | None | None (in-process) | python3 plus `gravitas` on PATH |
+
+The failure policy is fail-closed. An unreachable, slow, or broken guard denies mutating calls. A missing or corrupt contract denies mutations while still permitting reads (reported as `unconfigured` or `degraded`, never as silent permission). A hook payload that cannot be parsed blocks rather than passes. Host differences, stated without softening, are in [docs/hosts.md](docs/hosts.md).
+
+What enforcement is not: hooks are workflow controls, not an operating-system sandbox. The shell classifier described below is a conservative capability estimate, not filesystem containment. Full limits are in [SECURITY.md](SECURITY.md).
+
+## Evidence model
+
+Completion-grade evidence has a precise definition: a record produced by a Gravitas-owned execution (`validator_runner.py`), naming a declared validator and criterion, carrying exit code 0, timestamped strictly after the latest file write in the ledger, and sitting in an intact hash chain. Anything weaker (hook telemetry, reproducer output, prose) is recorded as supporting context and cannot satisfy the gate.
+
+Three mechanisms protect this definition. First, the Stop gate verifies chain integrity before reading any verdict, so edited or reordered ledger lines refuse completion instead of passing it. Second, freshness is recomputed from the ledger on every run; a file write after a PASS returns the criterion to pending until a new PASS lands. Third, validator identity is bound: the executed command must equal the contract declaration, the criterion must be assigned to that validator, and timeouts or interruptions record FAIL, never PASS. Output is capped and hashed digest-only so verbose tools cannot exhaust the runner.
+
+Hash chains deserve one unsentimental sentence: they make silent edits detectable, they do not stop an attacker who can rewrite the whole ledger. The model assumes filesystem integrity and states so.
+
+## Shell classification
+
+Shell strings are classified by tokenizer plus operator scan into five capability levels. The classifier is deliberately pessimistic: unknown executables, unparsable segments, wrappers (`sudo`, `env`, `VAR=` prefixes), newlines, `sh -c` payloads, and `xargs` tails all resolve against the inner command, worst segment wins.
+
+| Level | Meaning | Examples |
+|---|---|---|
+| none | Provably read-only query | `git status`, `ls`, `sed` without `-i`, `git -C dir status` |
+| write | Scoped file mutation | `write_to_file` inside allowed scope |
+| mutation | Code execution or unenumerable writes | `pytest`, `python3 -c`, pipelines, redirects |
+| destructive | Deletion, blind overwrite, infra, exfiltration | `rm -rf`, `git branch -D`, `find -execdir rm`, `curl … | sh` |
+| unknown | Unclassifiable | Fails closed to mutation at minimum |
+
+Quoted separators are a known over-approximation (`echo "a;b"` classifies as mutation). That direction is safe and documented; precise quote-aware splitting is deferred work, listed in the audit.
+
+## Verification
+
+The suite currently holds 188 tests: action locking, a shell-bypass corpus, scope and path-traversal checks, session isolation, evidence tampering, stale-gate behavior, packaging integrity, CLI integration, and deterministic fuzzing. Reproduce locally:
+
+```bash
+python -m unittest discover -s tests
 ```
 
-**Core** = behavioral policy via Agent Skills (any host). **Native** = Core + Antigravity plugin that mechanically checks tool calls, records hash-chained evidence, and gates stopping. **OpenCode** = Core + permission profiles + a `tool.execute.before` shim backed by the same policy engine. Capability matrix: [hosts](docs/hosts.md) · concepts: [concepts](docs/concepts.md) · config: [configuration](docs/configuration.md).
+The full gate, as run by CI on Python 3.9 and 3.12, is:
 
-## Proof, not promises
+```bash
+python -m unittest discover -s tests
+python benchmarks/runner/audit.py
+python benchmarks/runner/validate.py --episodes benchmarks/results --allow-empty
+python -m py_compile gravitas_cli.py gravitas_init.py plugins/gravitas-antigravity/scripts/*.py
+python .github/scripts/validate_skill.py
+python scripts/check_readme_claims.py
+bash scripts/build-native-bundle.sh
+```
 
-- **188 tests, green** — action locking, shell-bypass corpus, scope escapes, session isolation, evidence tampering, stale gates, packaging, CLI, fuzz. Run them: `python -m unittest discover -s tests`
-- **Security model, honestly**: [SECURITY.md](SECURITY.md) — hooks are workflow controls, not a sandbox; hash chains are tamper-evident, not tamper-proof.
-- **Benchmark honesty**: **30 registered task specifications across 10 planned lanes** in GravitasBench — design and infrastructure, not model results. No model-ranking number belongs here yet. Methodology: [benchmark](docs/benchmark.md) · gates: [production-readiness](docs/production-readiness.md).
-- Research grounding (mechanisms, not effect sizes): ReAct, Plan-and-Solve, SWE-bench and friends in [research](docs/research.md). Architecture decisions: [adr](docs/adr/). Latest hardening audit: [v5-audit](docs/audits/v5-audit.md).
+A clean wheel install plus external-workspace init is smoke-tested from an isolated virtualenv (both skills land, `opencode.json` merges without clobbering). The installed `agy plugin validate` passes on the canonical plugin and the generated bundle.
 
-## Docs
+## Benchmark status
 
-[Quickstart](docs/quickstart.md) · [Concepts](docs/concepts.md) · [Hosts](docs/hosts.md) · [Configuration](docs/configuration.md) · [Benchmark](docs/benchmark.md) · [Install & troubleshooting](docs/install.md) · [Contributing](docs/contributing.md) · [Security](SECURITY.md) · [Research](docs/research.md) · [ADRs](docs/adr/)
+GravitasBench currently holds **30 registered task specifications across 10 planned lanes**: task design, schemas, a runner, and smoke fixtures. That is infrastructure, not results. No solve rates, no requirement-coverage numbers, no token or latency comparisons, and no model rankings are published, because the preconditions for a credible comparison do not exist yet: pinned tasks, hidden independent validators, identical task sets across baseline and treatment, fixed model and host revisions, repeated runs in clean isolation, recorded failures, and reported overhead with uncertainty. Until then, every performance statement in this repository is a hypothesis with its status labeled. Methodology and release gates: [docs/benchmark.md](docs/benchmark.md), [docs/production-readiness.md](docs/production-readiness.md). The latest hardening audit, with reproductions and residual limitations, is [docs/audits/v5-audit.md](docs/audits/v5-audit.md).
+
+## Related work
+
+Each source below motivates one mechanism. None of them establishes an effect size for Gravitas; they are cited for the design reasoning they support, which [docs/research.md](docs/research.md) separates from project hypotheses.
+
+- [ReAct](https://openreview.net/forum?id=WE_vluYUL-X): grounding reasoning in actions and observations. Motivates invariant 1 (observed file state before editing).
+- [Plan-and-Solve](https://aclanthology.org/2023.acl-long.147/): explicit decomposition for multi-step tasks. Motivates contracts plus the adaptive planning record; applying it to coding workflows is the project hypothesis.
+- [Huang et al.](https://openreview.net/forum?id=IkmD3fKBPQ): unaided self-correction fails on the studied reasoning tasks. Motivates invariant 3 (external validators over self-review).
+- [SWE-bench](https://openreview.net/forum?id=VTF8yNQM66): judge repository state, not final prose. Motivates executed validators and the completion gate.
+- [Harness-Bench](https://arxiv.org/abs/2605.27922) and [Harness-IF](https://arxiv.org/abs/2608.11727): evaluate model-plus-harness configurations as systems, with stated methodology. This is the standard the benchmark track holds itself to before publishing any comparison.
+
+## Limitations
+
+Stated plainly, so nobody discovers them in production: Native hooks do not sandbox processes. The OpenCode V1 runtime is unvalidated here and its schema differs from V2. No live model-backed OpenCode run has been performed (it would spend paid quota). Read-before-write tracking in the OpenCode adapter is per call, so existing-file writes deny until session read tracking exists. Concurrent sessions are isolated by directory and conversation hash, not by OS controls. Anything above that you need is out of scope until documented otherwise.
+
+## Documentation
+
+[Quickstart](docs/quickstart.md) · [Concepts](docs/concepts.md) · [Hosts](docs/hosts.md) · [Configuration](docs/configuration.md) · [Benchmark methodology](docs/benchmark.md) · [Install and troubleshooting](docs/install.md) · [Contributing](docs/contributing.md) · [Security policy](SECURITY.md) · [Research foundations](docs/research.md) · [Architecture decisions](docs/adr/)
 
 ## Contributing
 
-Contributors so far: Uday Sharma, Devansh Singh (#1), Manan Bharti (#2, #3) — see [CONTRIBUTORS.md](CONTRIBUTORS.md). Most useful contributions: licensed benchmark tasks, hidden deterministic validators, live host compatibility checks, privacy review, independent replications. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+Useful contributions, in rough order of value: licensed benchmark tasks, hidden deterministic validators, live host compatibility checks, privacy review, independent replications. Contributors to date are listed in [CONTRIBUTORS.md](CONTRIBUTORS.md). Working agreement is in [CONTRIBUTING.md](CONTRIBUTING.md): read before writing, keep changes reviewable, add a regression test per confirmed bug, verify with executed output.
 
 ## Citation
 
