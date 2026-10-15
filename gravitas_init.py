@@ -38,6 +38,8 @@ def detect_ecosystem(root: Path) -> dict:
 
 
 def _copy_tree(source: Path, dest: Path, installed: list, skipped: list) -> None:
+    if not source.is_dir():
+        return
     for item in sorted(source.rglob("*")):
         if item.is_dir():
             continue
@@ -102,16 +104,32 @@ def init_opencode(root: Path, *, profile: str = "balanced", source_root: Path) -
     skipped: list[str] = []
     warnings: list[str] = []
 
+    # Preflight before any mutation: unknown profiles and missing templates
+    # fail without leaving a partial scaffold behind.
+    profile_path = adapter / "permissions" / f"{profile}.json"
+    if not profile_path.exists():
+        return {"ok": False, "error": f"unknown profile: {profile}",
+                "installed": [], "skipped": [], "warnings": []}
+    try:
+        fragment = json.loads(profile_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return {"ok": False, "error": f"profile {profile} unreadable: {error}",
+                "installed": [], "skipped": [], "warnings": []}
+    for required in (adapter / "AGENTS-snippet.md", adapter / "contract-template.json"):
+        if not required.exists():
+            return {"ok": False, "error": f"adapter template missing: {required.name}",
+                    "installed": [], "skipped": [], "warnings": []}
+
     for skill in ("gravitas", "gravitas-highstakes"):
-        _copy_tree(source_root / "skills" / skill, root / ".agents" / "skills" / skill,
+        skill_src = source_root / "skills" / skill
+        if not skill_src.is_dir():
+            warnings.append(f"skill source missing: {skill_src}; skipped")
+            continue
+        _copy_tree(skill_src, root / ".agents" / "skills" / skill,
                    installed, skipped)
     _copy_tree(adapter / "agents", root / ".opencode" / "agents", installed, skipped)
     _copy_tree(adapter / "plugin", root / ".opencode" / "plugins", installed, skipped)
 
-    profile_path = adapter / "permissions" / f"{profile}.json"
-    if not profile_path.exists():
-        return {"ok": False, "error": f"unknown profile: {profile}"}
-    fragment = json.loads(profile_path.read_text(encoding="utf-8"))
     fragment.pop("$schema", None)
     json_target = root / "opencode.json"
     jsonc_target = root / "opencode.jsonc"

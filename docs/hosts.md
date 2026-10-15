@@ -16,8 +16,17 @@
   specialists via `.opencode/agents/`, enforcement via `permission`
   profiles + the `tool.execute.before` plugin shim (`gravitas guard`).
 - Install: `gravitas init --host opencode --profile fast|balanced|strict`.
-- Verified against OpenCode 1.x (`permission` schema); v2 uses a
+- Compatibility (verified 2026-10-15): OpenCode v2.0.28 installed; shim
+  hook signature `(input, output)` with args in `output.args` matches the
+  official plugin docs verbatim (incl. the `tool.execute.before` arg-mutation
+  example); project `.opencode/plugins/` auto-load confirmed in docs, so
+  `gravitas init` output lands on the documented load path. No live
+  model-backed tool run performed (would spend paid quota); V1
+  `permission`-schema profiles ship in `adapters/opencode/permissions/`
+  (V1 runtime not installed here -- unvalidated). v2 uses a
   `permissions`-array schema (see `adapters/opencode/README.md`).
+- Failure policy is fail-closed: unreachable/slow/broken guard denies
+  mutating calls; see shim header.
 
 ## Capability differences (honest)
 

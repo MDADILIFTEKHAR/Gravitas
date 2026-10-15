@@ -5,6 +5,7 @@ Adds an evidence entry to the current session's evidence.jsonl.
 
 Usage: python ledger_add.py --criterion "AC1" --evidence "vitest: 47 passed" --source test_run --verdict PASS
 """
+from __future__ import annotations
 import json
 import sys
 import argparse

@@ -25,8 +25,10 @@ gravitas = "gravitas_cli:main"
   "plugins/gravitas-antigravity/hooks.json",
 ]
 "share/gravitas/plugins/gravitas-antigravity/scripts" = ["plugins/gravitas-antigravity/scripts/*.py"]
+"share/gravitas/plugins/gravitas-antigravity/rules" = ["plugins/gravitas-antigravity/rules/*.md"]
 "share/gravitas/plugins/gravitas-antigravity/agents" = ["plugins/gravitas-antigravity/agents/*.md"]
-"share/gravitas/skills/gravitas" = ["skills/gravitas/SKILL.md", "skills/gravitas/PROMPT-TEMPLATE.md"]
+"share/gravitas/skills/gravitas-highstakes" = ["skills/gravitas-highstakes/*.md"]
+"share/gravitas/skills/gravitas" = ["skills/gravitas/SKILL.md", "skills/gravitas/PROMPT-TEMPLATE.md", "skills/gravitas/SESSION_FAILURES.md"]
 "share/gravitas/skills/gravitas/agents" = ["skills/gravitas/agents/*.md"]
 "share/gravitas/skills/gravitas/references" = ["skills/gravitas/references/*.md"]
 "share/gravitas/skills/gravitas/resources" = ["skills/gravitas/resources/*.md"]

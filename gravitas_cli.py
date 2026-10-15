@@ -71,19 +71,25 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "mode": runtime_mode(),
         "runtime_root": str(ROOT),
         "skill": (ROOT / "skills/gravitas/SKILL.md").is_file(),
+        "highstakes_skill": (ROOT / "skills/gravitas-highstakes/SKILL.md").is_file(),
         "plugin_manifest": (native / "plugin.json").is_file(),
         "hooks": (native / "hooks.json").is_file(),
         "validator_runner": (SCRIPTS / "validator_runner.py").is_file(),
         "pre_tool_hook": (SCRIPTS / "pre_tool.py").is_file(),
+        "post_tool_hook": (SCRIPTS / "post_tool.py").is_file(),
+        "post_invocation_hook": (SCRIPTS / "post_invocation.py").is_file(),
         "stop_gate_hook": (SCRIPTS / "stop_gate.py").is_file(),
         "evidence_chain": (SCRIPTS / "evidence_chain.py").is_file(),
         "project_session_store": (Path.cwd() / ".gravitas" / "sessions").is_dir(),
         "adapters": (ROOT / "adapters" / "opencode" / "contract-template.json").is_file(),
+        "adapter_permissions": (ROOT / "adapters" / "opencode" / "permissions" / "balanced.json").is_file(),
         "project_opencode_contract": (Path.cwd() / ".gravitas" / "opencode-contract.json").is_file(),
         "project_opencode_skill": (Path.cwd() / ".agents" / "skills" / "gravitas" / "SKILL.md").is_file(),
     }
     print(json.dumps(checks, indent=2))
-    required = ["skill", "plugin_manifest", "hooks", "validator_runner", "pre_tool_hook", "stop_gate_hook", "evidence_chain"]
+    required = ["skill", "highstakes_skill", "plugin_manifest", "hooks", "validator_runner",
+                "pre_tool_hook", "post_tool_hook", "post_invocation_hook",
+                "stop_gate_hook", "evidence_chain"]
     return 0 if all(checks[key] for key in required) else 1
 
 
@@ -231,6 +237,28 @@ def cmd_repro(args: argparse.Namespace) -> int:
     return subprocess.run(command, check=False).returncode
 
 
+def cmd_resolve_failure(args: argparse.Namespace) -> int:
+    """Mark a failed-approach fingerprint resolved after its cause is gone.
+
+    Appends a resolution marker to failures.jsonl; pre_tool then stops
+    banning that exact fingerprint. The original failure record is kept.
+    """
+    from datetime import datetime, timezone
+    session_dir = Path(args.session_dir)
+    if not session_dir.is_dir():
+        print(json.dumps({"ok": False, "error": f"not a session directory: {session_dir}"}))
+        return 1
+    if not args.fingerprint or not args.reason:
+        print(json.dumps({"ok": False, "error": "fingerprint and reason are both required"}))
+        return 1
+    marker = {"fingerprint": args.fingerprint, "resolved": True, "reason": args.reason,
+              "timestamp": datetime.now(timezone.utc).isoformat()}
+    with (session_dir / "failures.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(marker) + "\n")
+    print(json.dumps({"ok": True, "fingerprint": args.fingerprint}))
+    return 0
+
+
 def cmd_edge_cases(args: argparse.Namespace) -> int:
     try:
         from gravitas_verify import expand_cases
@@ -270,22 +298,30 @@ def _opencode_tool(tool: str, args: dict) -> tuple[str, dict]:
 
 
 def cmd_guard(args: argparse.Namespace) -> int:
-    """One policy decision for a host envelope on stdin/--envelope."""
+    """One policy decision for a host envelope on stdin/--envelope.
+
+    Policy states (reported as ``policy_state``):
+    active (contract ok), unconfigured (contract file missing),
+    degraded (contract corrupt/invalid or mode unknown), disabled (never
+    emitted here; no disable flag exists). Mutating actions are denied
+    fail-closed unless the contract is valid and permits them. Read-only
+    actions may pass with a warning so diagnostics stay usable.
+    """
     try:
         from gravitas_action import HostEnvelope, normalize, workspace_roots
         from gravitas_policy import action_fingerprint, evaluate_action
     except ModuleNotFoundError:
-        print(json.dumps({"decision": "allow",
-                          "warning": f"runtime assets not found under {ROOT}"}))
+        print(json.dumps({"decision": "deny", "policy_state": "degraded",
+                          "reason": f"runtime assets not found under {ROOT}; reinstall gravitas or run from a checkout"}))
         return 0
     raw = args.envelope or sys.stdin.read()
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        print(json.dumps({"decision": "deny", "reason": "guard could not parse the envelope; denied fail-closed"}))
+        print(json.dumps({"decision": "deny", "policy_state": "active", "reason": "guard could not parse the envelope; denied fail-closed"}))
         return 0
     if not isinstance(data, dict) or not isinstance(data.get("tool"), str):
-        print(json.dumps({"decision": "deny", "reason": "guard envelope has no tool"}))
+        print(json.dumps({"decision": "deny", "policy_state": "active", "reason": "guard envelope has no tool"}))
         return 0
     envelope = HostEnvelope(tool=data["tool"], args=data.get("args", {}),
                             conversation_id=data.get("conversation_id", ""),
@@ -293,25 +329,70 @@ def cmd_guard(args: argparse.Namespace) -> int:
                             host=data.get("host", ""), event=data.get("event", "before_action"))
     if envelope.host == "opencode":
         # OpenCode tool vocabulary onto the normalized model. Unknown tools
-        # stay unmapped: visible (kind "other"), never gated.
+        # stay unmapped: visible (kind "other"), allowed with a warning.
         envelope.tool, envelope.args = _opencode_tool(envelope.tool, envelope.args)
+    if not isinstance(envelope.args, dict):
+        print(json.dumps({"decision": "deny", "policy_state": "active",
+                          "reason": "guard envelope args must be an object; denied fail-closed"}))
+        return 0
+    # Empty mutating payloads fail closed: an adapter that drops arguments
+    # must never turn a write/shell into an allow.
+    if envelope.tool in ("write_to_file", "replace_file_content",
+                         "multi_replace_file_content", "run_command") and not envelope.args:
+        print(json.dumps({"decision": "deny", "policy_state": "active",
+                          "reason": f"mutating tool {envelope.tool} arrived with no arguments; denied fail-closed"}))
+        return 0
     contract_path = Path(args.contract) if args.contract else Path.cwd() / ".gravitas" / "opencode-contract.json"
+    policy_state = "active"
+    contract_warning = ""
     try:
-        contract = json.loads(contract_path.read_text()) if contract_path.exists() else {}
-    except json.JSONDecodeError:
+        contract = json.loads(contract_path.read_text()) if contract_path.exists() else None
+    except json.JSONDecodeError as error:
+        contract = None
+        policy_state = "degraded"
+        contract_warning = f"contract {contract_path} is not valid JSON ({error}); mutating actions denied"
+    if contract is None and not contract_warning:
+        policy_state = "unconfigured"
+        contract_warning = (f"no contract at {contract_path}; mutating actions denied. "
+                            "Run `gravitas init` to create one")
         contract = {}
-    if not isinstance(contract, dict):
+    if contract is None:
         contract = {}
-    from gravitas_policy import normalize_mode
+    elif not isinstance(contract, dict):
+        policy_state = "degraded"
+        contract_warning = f"contract {contract_path} is not an object; mutating actions denied"
+        contract = {}
+    from gravitas_policy import MODES, MODE_ALIASES, normalize_mode
+    raw_mode = contract.get("mode", "implement")
+    if raw_mode not in MODES and raw_mode not in MODE_ALIASES:
+        policy_state = "degraded" if policy_state == "active" else policy_state
+        contract_warning = (contract_warning + " " if contract_warning else "") + \
+            f"unknown mode {raw_mode!r}; denied fail-closed. Valid modes: {sorted(MODES)}"
+        print(json.dumps({"decision": "deny", "policy_state": policy_state,
+                          "reason": contract_warning.strip()}))
+        return 0
     action = normalize(envelope.tool, envelope.args)
+    mutating = action.kind == "write" or action.mutation != "none"
+    if policy_state in ("unconfigured", "degraded") and mutating:
+        print(json.dumps({"decision": "deny", "policy_state": policy_state,
+                          "reason": contract_warning or "contract unavailable; denied fail-closed"}))
+        return 0
     decision, reason = evaluate_action(
         action, mode=normalize_mode(contract.get("mode", "implement")),
         allowed_scope=contract.get("allowed_write_scope", []), reads=set(),
         failed_fingerprints=set(), roots=workspace_roots(envelope),
         fingerprint=action_fingerprint(envelope.tool, envelope.args))
-    out = {"decision": "deny" if decision == "force_ask" else decision}
+    out = {"decision": "deny" if decision == "force_ask" else decision,
+           "policy_state": policy_state}
     if reason:
         out["reason"] = reason
+    if contract_warning and out["decision"] == "allow":
+        out["warning"] = contract_warning
+    if envelope.tool not in ("view_file", "grep_search", "find_by_name", "list_dir",
+                             "read_url_content", "search_web", "write_to_file",
+                             "replace_file_content", "multi_replace_file_content",
+                             "run_command") and out["decision"] == "allow":
+        out["warning"] = (out.get("warning", "") + " unknown tool; allowed as visible-only (kind=other)").strip()
     print(json.dumps(out))
     return 0
 
@@ -497,6 +578,11 @@ def main() -> int:
     repro.add_argument("--cwd", default=".")
     repro.add_argument("command", nargs=argparse.REMAINDER)
     repro.set_defaults(func=cmd_repro)
+    resolve = sub.add_parser("resolve-failure", help="Mark a failed fingerprint resolved so it can be retried")
+    resolve.add_argument("--session-dir", required=True)
+    resolve.add_argument("--fingerprint", required=True)
+    resolve.add_argument("--reason", required=True)
+    resolve.set_defaults(func=cmd_resolve_failure)
     edge = sub.add_parser("edge-cases", help="Expand seed values into deterministic boundary variants")
     edge.add_argument("--seeds", default="[]", help="JSON array of seed values")
     edge.set_defaults(func=cmd_edge_cases)

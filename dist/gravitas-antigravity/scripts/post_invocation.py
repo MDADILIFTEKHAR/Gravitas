@@ -7,6 +7,7 @@ for interruption recovery.
 Input (stdin): JSON with session context
 Output: Writes/updates .gravitas/sessions/<task-id>/state.json
 """
+from __future__ import annotations
 import json
 import sys
 from pathlib import Path
@@ -54,7 +55,10 @@ def update_state_from_evidence(state: dict, session_dir: Path) -> dict:
                 pass
 
     files_touched = set(state.get("files_touched", []))
-    completed_criteria = set(state.get("completed_criteria", []))
+    # Authoritative recompute: entries that went stale (write after PASS)
+    # must not survive from a previous run. Seed retention caused
+    # state.json to report completed criteria the ledger no longer supports.
+    completed_criteria: set = set()
     read_files = set(state.get("read_files", []))
 
     for entry in entries:

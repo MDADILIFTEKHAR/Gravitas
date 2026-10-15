@@ -8,6 +8,7 @@ Creates a new .gravitas/sessions/<task-id>/ directory with:
 
 Usage: python init_session.py --contract contract.json [--task-id my-task]
 """
+from __future__ import annotations
 import json
 import argparse
 import re

@@ -12,11 +12,13 @@ def audit():
     from jsonschema import Draft7Validator
 
     errors = []
-    for schema_path in sorted((ROOT / "schemas").glob("*.schema.json")):
+    for schema_path in sorted((ROOT / "schemas").glob("*.json")):
         try:
             Draft7Validator.check_schema(json.loads(schema_path.read_text()))
         except Exception as error:
             errors.append(f"invalid schema {schema_path.name}: {error}")
+    if (ROOT / "plugins/gravitas-antigravity/hooks/hooks.json").exists():
+        errors.append("legacy plugins/gravitas-antigravity/hooks/hooks.json must be removed (duplicate manifest)")
     manifest = yaml.safe_load((ROOT / "benchmarks/manifest.yaml").read_text())
     lanes = manifest.get("lanes", {})
     task_ids = [task_id for lane in lanes.values() for task_id in lane.get("tasks", [])]

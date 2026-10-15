@@ -12,6 +12,7 @@ duplicate-failure guard.
 Input (stdin): Antigravity JSON with toolCall.name and toolCall.args
 Output (stdout): JSON with decision: allow|deny|force_ask and an optional reason
 """
+from __future__ import annotations
 import json
 import sys
 from pathlib import Path
@@ -108,12 +109,20 @@ def main():
     reads = load_reads(session_dir) if session_dir else set()
     fingerprint = action_fingerprint(envelope.tool, envelope.args)
 
+    # A failure bans its exact fingerprint until something material changes.
+    # Entries marked resolved:true (via `gravitas resolve-failure` after the
+    # transient cause is gone) re-arm the action; everything else still bans.
+    resolved = {entry.get("fingerprint") for entry in failures
+                if entry.get("resolved") is True and entry.get("fingerprint")}
+    failed = {entry.get("fingerprint") for entry in failures
+              if entry.get("fingerprint") and entry.get("fingerprint") not in resolved}
+
     decision, reason = evaluate_action(
         action,
         mode=mode,
         allowed_scope=contract.get("allowed_write_scope", []),
         reads=reads,
-        failed_fingerprints={entry.get("fingerprint") for entry in failures},
+        failed_fingerprints=failed,
         roots=workspace_roots(envelope),
         fingerprint=fingerprint,
     )
