@@ -86,19 +86,17 @@ flowchart LR
   F -->|Yes| G[Finished, proof attached]
 ```
 
-And here is what changes when the harness is on:
+And here is the honest difference. Gemini alone is capable of every good practice below; the difference is that nothing requires them, checks them, or keeps the receipts. Gravitas makes each step required and verifiable.
 
-```mermaid
-flowchart TB
-  subgraph Alone["Gemini alone"]
-    direction LR
-    A1[Gets the task] --> B1[Edits files] --> C1[Says it is done]
-  end
-  subgraph WithG["Gemini plus Gravitas"]
-    direction LR
-    A2[Gets the task] --> B2[Reads the code] --> C2[Makes a plan] --> D2[Edits inside limits] --> E2[Runs the real checks] --> F2[Done only with proof]
-  end
-```
+| Stage | Gemini alone (what actually happens) | Gemini plus Gravitas |
+|---|---|---|
+| Reading code | Usually reads the relevant files, but nothing stops a blind edit when context is long or the model is confident. | Read-before-write is enforced: editing an existing file without a recorded read is denied. |
+| Planning | Plans when it judges the task needs one. No record survives the session. | A machine-readable plan (`direct` to `replan`) is emitted with reason codes and stored; effort scales with risk and blast radius. |
+| Scope | Can touch any file the tools allow. A wrong turn edits the wrong package. | Each task declares `allowed_write_scope`. Outside writes are denied with the violating path named. |
+| Running checks | Often runs tests, sometimes before the final edit, and reports the result in prose you cannot re-run. | A declared validator executes after the last mutation; its exit code and output hash are recorded. A PASS from before the final edit is stale and rejected. |
+| Retrying failures | Happily retries the identical call that just failed, burning quota. | An exact retry of a failed fingerprint is banned until the diagnosis, context, or strategy changes. |
+| Claiming completion | Announces done. Nothing re-checks the claim. | The Stop gate demands a fresh owned PASS per criterion over an intact evidence chain. If proof is missing after bounded retries, the session ends marked unverified, never passed. |
+| When something breaks | The error sits somewhere in the chat history. | Every denial and failure states what failed, which component decided, and the next safe action. |
 
 ## Enforcement semantics
 
