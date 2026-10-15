@@ -35,6 +35,14 @@ class ClassifierHardeningTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(classify_shell(command)["mutation"], "mutation", command)
 
+    def test_newline_separates_commands(self):
+        for command, expected in (("ls\nrm -rf build", "destructive"),
+                                  ("git status\r\nrm -rf build", "destructive"),
+                                  ("ls\ncp a b", "mutation"),
+                                  ("ls\npwd", "none")):
+            with self.subTest(command=command):
+                self.assertEqual(classify_shell(command)["mutation"], expected, command)
+
     def test_rsync_is_destructive(self):
         self.assertEqual(classify_shell("rsync -a src/ dst/")["mutation"], "destructive")
 

@@ -249,7 +249,7 @@ def classify_shell(command: str) -> dict:
     text = command.strip()
     if not text:
         return {"mutation": "none", "reason": "empty command"}
-    segments = [seg for seg in re.split(r"[;&|]+", text) if seg.strip()]
+    segments = [seg for seg in re.split(r"[;&|\r\n]+", text) if seg.strip()]
     worst = "none"
     reasons = []
     executable = ""
