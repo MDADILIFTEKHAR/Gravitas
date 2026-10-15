@@ -113,7 +113,27 @@ def init_opencode(root: Path, *, profile: str = "balanced", source_root: Path) -
         return {"ok": False, "error": f"unknown profile: {profile}"}
     fragment = json.loads(profile_path.read_text(encoding="utf-8"))
     fragment.pop("$schema", None)
-    _merge_json(root / "opencode.json", fragment, installed, skipped, warnings)
+    json_target = root / "opencode.json"
+    jsonc_target = root / "opencode.jsonc"
+    if not json_target.exists() and jsonc_target.exists():
+        # Issue #4: a jsonc-only project must not gain a second opencode.json.
+        # Rewriting the .jsonc as strict JSON would strip comments, so leave
+        # it untouched and ask the user to merge the profile manually.
+        skipped.append(str(jsonc_target))
+        warnings.append(
+            f"{jsonc_target} exists; left untouched. "
+            f"Merge the Gravitas permission profile ({profile}) manually "
+            f"from adapters/opencode/permissions/{profile}.json "
+            "instead of creating a second opencode.json.")
+    else:
+        _merge_json(json_target, fragment, installed, skipped, warnings)
+        if jsonc_target.exists():
+            # Both configs exist: opencode.json is primary; never touch .jsonc.
+            if str(jsonc_target) not in skipped:
+                skipped.append(str(jsonc_target))
+            warnings.append(
+                f"{jsonc_target} exists alongside {json_target}; left untouched. "
+                "Merge the Gravitas permission profile manually if needed.")
 
     snippet = (adapter / "AGENTS-snippet.md").read_text(encoding="utf-8")
     _ensure_agents_block(root / "AGENTS.md", snippet, installed, skipped)

@@ -14,7 +14,10 @@ everything blindly — depth follows blast radius and uncertainty.
 ## OpenCode permission profiles
 
 `gravitas init --host opencode --profile <name>` merges a profile into
-`opencode.json` without clobbering existing keys:
+`opencode.json` without clobbering existing keys. Files that cannot be
+parsed as a JSON object are left untouched (reported under `skipped`
+with a `warnings` entry). A project that uses only `opencode.jsonc`
+never gains a second `opencode.json`; merge the profile manually.
 
 - `fast`: edits allowed; shell allowed except destructive denies.
 - `balanced`: shell asks by default; status/diff/log/grep allowed; destructive denied.

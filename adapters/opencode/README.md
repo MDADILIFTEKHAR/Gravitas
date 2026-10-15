@@ -12,7 +12,9 @@ schema). OpenCode v2 uses a different `permissions`-array schema; see
 - `.agents/skills/gravitas/` + `gravitas-highstakes/` (shared with Antigravity discovery)
 - `.opencode/agents/{investigator,reviewer,impact-auditor,test-adversary}.md`
 - `.opencode/plugins/gravitas.js` (enforcement shim)
-- `opencode.json` permission profile (merged, never clobbered)
+- `opencode.json` permission profile (merged, never clobbered; unparseable
+  configs and `opencode.jsonc`-only projects are left untouched with a
+  `warnings` entry for manual merge)
 - `AGENTS.md` invariant block (idempotent markers)
 - `.gravitas/opencode-contract.json` (workspace contract for the shim)
 

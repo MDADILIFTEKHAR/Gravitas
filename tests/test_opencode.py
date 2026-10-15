@@ -36,7 +36,7 @@ class InitTests(unittest.TestCase):
             result = init_opencode(root, profile="balanced", source_root=ROOT)
             self.assertTrue(result["ok"], result)
             self.assertEqual((root / "opencode.json").read_text(encoding="utf-8"), original)
-            self.assertIn(str(root / "opencode.json"), result["skipped"])
+            self.assertIn(str(root.resolve() / "opencode.json"), result["skipped"])
             self.assertTrue(result["warnings"])
 
     def test_init_opencode_preserves_non_object_config(self):
@@ -45,6 +45,18 @@ class InitTests(unittest.TestCase):
             (root / "opencode.json").write_text("[1, 2]\n", encoding="utf-8")
             init_opencode(root, profile="balanced", source_root=ROOT)
             self.assertEqual((root / "opencode.json").read_text(encoding="utf-8"), "[1, 2]\n")
+
+    def test_init_opencode_jsonc_only_does_not_create_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            original = '{\n  // my config\n  "model": "x"\n}\n'
+            (root / "opencode.jsonc").write_text(original, encoding="utf-8")
+            result = init_opencode(root, profile="balanced", source_root=ROOT)
+            self.assertTrue(result["ok"], result)
+            self.assertFalse((root / "opencode.json").exists())
+            self.assertEqual((root / "opencode.jsonc").read_text(encoding="utf-8"), original)
+            self.assertIn(str(root.resolve() / "opencode.jsonc"), result["skipped"])
+            self.assertTrue(result["warnings"])
 
     def test_init_opencode_full_scaffold(self):
         with tempfile.TemporaryDirectory() as tmp:
