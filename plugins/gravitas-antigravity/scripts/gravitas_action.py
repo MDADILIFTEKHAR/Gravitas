@@ -199,6 +199,116 @@ def _strip_git_globals(rest: list) -> tuple[list, list[str]]:
     return out, operands
 
 
+#: sed one-letter commands that only transform or print the pattern space.
+_SED_SAFE_COMMANDS = frozenset("abcdDgGhHilnNpPqQrRTvxyzFbt=:#")
+
+#: One sed address: line number, last line, /regex/ or \cregexc.
+_SED_ADDR_ONE = re.compile(r"""\s*(?:
+      \d+                     # line number
+    | \$                      # last line
+    | /(?:\\.|[^/\\])*/?      # /regex/ (tolerate unterminated)
+    | \\(.)(?:\\.|(?!\1).)*\1?  # \cregexc (tolerate unterminated)
+    )\s*""", re.VERBOSE)
+
+#: s<delim>pattern<delim>replacement<delim>flags, with escaped delimiters.
+_SED_SUBST = re.compile(r"s(.)(?:\\\1|(?!\1).)*\1(?:\\\1|(?!\1).)*\1\s*([A-Za-z0-9]*)")
+
+
+def _strip_sed_address(text: str) -> str:
+    """Remove a leading sed address or address range (at most addr[,addr])."""
+    pos = 0
+    for _ in range(2):
+        match = _SED_ADDR_ONE.match(text, pos)
+        if not match:
+            break
+        pos = match.end()
+        if text[pos:].lstrip()[:1] == ",":
+            pos = text.index(",", pos) + 1
+        else:
+            break
+    return text[pos:]
+
+
+def _sed_script_mutates(script: str) -> bool:
+    """True if a sed program writes files (w/W commands or flags) or runs code (e)."""
+    for chunk in re.split(r"[;\n]", script):
+        text = chunk.strip()
+        if not text or text.startswith("#"):
+            continue
+        text = _strip_sed_address(text).lstrip("{ \t}")
+        if text[:1] == "!":
+            text = text[1:].lstrip()
+        if not text or text[0] in "{}":
+            continue
+        cmd = text[0]
+        if cmd in ("w", "W", "e"):
+            return True
+        if cmd == "s":
+            match = _SED_SUBST.match(text)
+            if match is None:
+                return True  # unparsable substitute fails closed
+            if any(flag in ("w", "W", "e") for flag in match.group(2)):
+                return True
+        elif cmd not in _SED_SAFE_COMMANDS:
+            return True  # unknown command letter fails closed
+    return False
+
+
+def _sed_scripts(rest: list) -> list | None:
+    """Inline sed programs from -e/positional operands.
+
+    Returns None when the program comes from -f (a file: uninspectable).
+    """
+    exprs: list = []
+    positionals: list = []
+    index = 0
+    while index < len(rest):
+        arg = rest[index]
+        if arg in ("-e", "--expression"):
+            if index + 1 >= len(rest):
+                return None  # dangling -e: uninspectable
+            exprs.append(rest[index + 1])
+            index += 2
+        elif arg.startswith("--expression="):
+            exprs.append(arg.split("=", 1)[1])
+            index += 1
+        elif arg in ("-f", "--file") or arg.startswith("--file="):
+            return None
+        elif arg == "--":
+            positionals.extend(rest[index + 1:])
+            break
+        elif arg == "--line-length":
+            index += 2  # operand is a width, never a program
+        elif arg.startswith("--"):
+            index += 1
+        elif arg.startswith("-") and len(arg) > 1:
+            consumed = 1
+            for pos, char in enumerate(arg[1:], start=1):
+                if char == "e":
+                    if pos + 1 < len(arg):
+                        exprs.append(arg[pos + 1:])
+                    elif index + 1 < len(rest):
+                        exprs.append(rest[index + 1])
+                        consumed = 2
+                    else:
+                        return None  # dangling -e: uninspectable
+                    break
+                if char == "f":
+                    return None
+                if char == "l":
+                    if pos + 1 < len(arg):
+                        break  # -l70: width glued on, nothing follows
+                    consumed = 2  # -l 70: skip the width operand
+                    break
+            index += consumed
+        else:
+            positionals.append(arg)
+            index += 1
+    if not exprs and positionals:
+        exprs.append(positionals[0])
+    return exprs
+
+
 def _operand_paths(segment: str) -> list[str]:
     """Extract enumerable file operands (tee targets, dd of=).
 
@@ -324,8 +434,15 @@ def classify_shell_segment(segment: str, _depth: int = 0) -> dict:
     if binary in {"cp", "touch", "mkdir", "ln", "sed", "patch", "tar", "unzip", "zip", "install",
                    "ed", "ex", "vi", "vim", "nano", "emacs"}:
         if binary == "sed" and not any(arg == "-i" or arg.startswith("-i") or arg == "--in-place" for arg in rest):
-            return {"mutation": "none", "executable": binary, "argv": argv,
-                    "reason": "sed without -i only filters text"}
+            scripts = _sed_scripts(rest)
+            if scripts is not None and not any(_sed_script_mutates(s) for s in scripts):
+                return {"mutation": "none", "executable": binary, "argv": argv,
+                        "reason": "sed without -i only filters text"}
+            if scripts is None:
+                return {"mutation": "mutation", "executable": binary, "argv": argv,
+                        "reason": "sed -f reads its program from a file; fails closed"}
+            return {"mutation": "mutation", "executable": binary, "argv": argv,
+                    "reason": "sed script writes files (w) or executes commands (e)"}
         return {"mutation": "mutation", "executable": binary, "argv": argv,
                 "reason": f"{binary} writes files"}
     if binary in {"python", "python3", "node", "deno", "ruby", "php", "perl", "bash", "sh"}:

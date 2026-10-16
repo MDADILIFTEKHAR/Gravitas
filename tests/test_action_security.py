@@ -77,6 +77,21 @@ class ClassifierHardeningTests(unittest.TestCase):
     def test_rsync_is_destructive(self):
         self.assertEqual(classify_shell("rsync -a src/ dst/")["mutation"], "destructive")
 
+    def test_sed_write_and_exec_scripts_are_mutation(self):
+        for command in ("sed -n 'w out.txt' f", "sed 's/a/b/w out' f", "sed '1e rm x' f",
+                        "sed -e 's/a/b/W out' f", "sed 's/x/id/e' f", "sed -n '1,5w out' f",
+                        "sed -n '/err/w errors.txt' f", "sed -f prog.sed f",
+                        "sed -n -e 'p' -e 'w out' f"):
+            with self.subTest(command=command):
+                self.assertEqual(classify_shell(command)["mutation"], "mutation", command)
+
+    def test_sed_filter_scripts_stay_none(self):
+        for command in ("sed s/a/b/ f", "sed -n p f", "sed -e 's/a/b/g' -e '/x/d' f",
+                        "sed '1,5d' f", "sed -n '/err/p' f", "sed -l 70 's/a/b/' f",
+                        "sed -e 's/a/b/' -e p f", "sed -n '$p' f"):
+            with self.subTest(command=command):
+                self.assertEqual(classify_shell(command)["mutation"], "none", command)
+
     def test_operand_extraction(self):
         result = classify_shell("cat a | tee out1 out2")
         self.assertIn("out1", result["paths"])
