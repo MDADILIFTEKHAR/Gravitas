@@ -127,6 +127,10 @@ DESTRUCTIVE_BINARIES = frozenset({
     "curl", "wget", "ssh", "scp", "rsync",
 })
 
+#: git config keys (via `git -c`) that make read-only subcommands run programs.
+_GIT_EXEC_CONFIG = ("external", "pager", "command", "fsmonitor", "editor", "helper",
+                    "alias.", "hook", "textconv")
+
 DESTRUCTIVE_GIT = frozenset({"reset", "clean", "checkout", "restore", "rm"})
 
 _SUBSTITUTION = re.compile(r"\$\(|`[^`]*`|[<>]\(")
@@ -235,16 +239,38 @@ def classify_shell_segment(segment: str, _depth: int = 0) -> dict:
         return {"mutation": "destructive", "executable": binary, "argv": argv,
                 "reason": f"{binary} is never read-only"}
     if binary == "git":
+        _i = 0
+        while _i < len(rest) and rest[_i].startswith("-"):
+            if rest[_i] == "-c" and _i + 1 < len(rest):
+                if any(k in rest[_i + 1].split("=", 1)[0].lower() for k in _GIT_EXEC_CONFIG):
+                    return {"mutation": "mutation", "executable": "git", "argv": argv,
+                            "reason": "git -c sets a config key that can run a program"}
+                _i += 2
+            else:
+                _i += 1
         rest, _git_dirs = _strip_git_globals(rest)
         sub = rest[0] if rest else ""
         if sub in DESTRUCTIVE_GIT:
             return {"mutation": "destructive", "executable": "git", "argv": argv,
                     "reason": f"git {sub} destroys or overwrites state"}
         if sub == "branch":
-            flags = set(rest[1:])
-            if flags & {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "--copy"}:
+            args = rest[1:]
+            flags = set(args)
+            if flags & {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "--copy",
+                        "-C", "-f", "--force"}:
                 return {"mutation": "destructive", "executable": "git", "argv": argv,
-                        "reason": "git branch delete/rename destroys refs"}
+                        "reason": "git branch delete/rename/force changes or destroys refs"}
+            list_mode = any(a in {"-l", "--list", "--show-current"}
+                            or a.split("=", 1)[0] in {"--contains", "--no-contains", "--merged",
+                                                      "--no-merged", "--points-at"}
+                            for a in args)
+            writes_config = any(a in {"-u", "-t", "--track", "--no-track", "--unset-upstream",
+                                      "--edit-description"}
+                                or a.startswith(("--set-upstream-to", "--track=")) for a in args)
+            positional = [a for a in args if not a.startswith("-")]
+            if writes_config or (positional and not list_mode):
+                return {"mutation": "mutation", "executable": "git", "argv": argv,
+                        "reason": "git branch creates a branch or edits branch config"}
             return {"mutation": "none", "executable": "git", "argv": argv,
                     "reason": "git branch is a read-only query"}
         if sub == "stash":
@@ -270,6 +296,11 @@ def classify_shell_segment(segment: str, _depth: int = 0) -> dict:
         if sub in {"add", "commit", "push", "merge", "rebase"}:
             return {"mutation": "mutation", "executable": "git", "argv": argv,
                     "reason": f"git {sub} mutates repository state"}
+        if sub in {"diff", "show", "log"} and any(
+                a == "--output" or a.startswith("--output=") or a == "--ext-diff"
+                for a in rest[1:]):
+            return {"mutation": "mutation", "executable": "git", "argv": argv,
+                    "reason": f"git {sub} --output writes a file; --ext-diff runs a program"}
         if sub in READ_GIT:
             return {"mutation": "none", "executable": "git", "argv": argv,
                     "reason": f"git {sub} is a read-only query"}

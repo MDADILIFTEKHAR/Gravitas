@@ -52,6 +52,28 @@ class ClassifierHardeningTests(unittest.TestCase):
     def test_rg_plain_stays_none(self):
         self.assertEqual(classify_shell("rg -n foo src")["mutation"], "none")
 
+    def test_git_read_only_subcommands_with_write_or_exec_flags(self):
+        for command in ("git diff --output=out.patch", "git show --output out.txt HEAD",
+                        "git log --output=o", "git diff --ext-diff",
+                        "git -c diff.external=./hook diff", "git -c core.pager=./x log",
+                        "git branch newbranch", "git branch feat HEAD~1",
+                        "git branch -u origin/main", "git branch --set-upstream-to=origin/main"):
+            with self.subTest(command=command):
+                self.assertEqual(classify_shell(command)["mutation"], "mutation", command)
+
+    def test_git_branch_force_is_destructive(self):
+        for command in ("git branch -f main HEAD~5", "git branch --force main HEAD~5"):
+            with self.subTest(command=command):
+                self.assertEqual(classify_shell(command)["mutation"], "destructive", command)
+
+    def test_git_read_only_forms_stay_none(self):
+        for command in ("git branch", "git branch -a", "git branch -vv", "git branch --show-current",
+                        "git branch --list 'feat*'", "git branch --merged main",
+                        "git branch --contains HEAD", "git diff --stat", "git -c color.ui=never diff",
+                        "git log --oneline -5", "git -C sub status"):
+            with self.subTest(command=command):
+                self.assertEqual(classify_shell(command)["mutation"], "none", command)
+
     def test_rsync_is_destructive(self):
         self.assertEqual(classify_shell("rsync -a src/ dst/")["mutation"], "destructive")
 
