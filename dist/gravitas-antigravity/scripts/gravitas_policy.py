@@ -242,12 +242,12 @@ def _with_delegation(record: dict, signals: dict, *, high_stakes: bool) -> dict:
 def _delegation(signals: dict, *, high_stakes: bool) -> dict:
     if signals.get("localization_uncertain"):
         return {"delegation": "investigator", "reason_codes": ["localization-uncertain"]}
+    if signals.get("strict") and signals.get("security"):
+        return {"delegation": "test-adversary", "reason_codes": ["strict-security"]}
     if high_stakes and (signals.get("broad_fanout") or _safe_int(signals.get("files", 1), default=1) > 3):
         return {"delegation": "impact-auditor", "reason_codes": ["blast-radius-uncertain"]}
     if high_stakes:
         return {"delegation": "reviewer", "reason_codes": ["risky-implementation"]}
-    if signals.get("strict") and signals.get("security"):
-        return {"delegation": "test-adversary", "reason_codes": ["strict-security"]}
     if _safe_int(signals.get("independent_workstreams", 1), default=1) > 1:
         return {"delegation": "none",
                 "reason_codes": ["parallel-workstreams-require-explicit-split"]}
