@@ -133,7 +133,7 @@ _GIT_EXEC_CONFIG = ("external", "pager", "command", "fsmonitor", "editor", "help
 
 DESTRUCTIVE_GIT = frozenset({"reset", "clean", "checkout", "restore", "rm"})
 
-_SUBSTITUTION = re.compile(r"\$\(|`[^`]*`")
+_SUBSTITUTION = re.compile(r"\$\(|`[^`]*`|[<>]\(")
 _REDIRECT = re.compile(r"(?:^|[\s\d])(?:>>?|<)(?=\s|$|=)")
 _PIPE = re.compile(r"\|")
 
@@ -379,6 +379,9 @@ def classify_shell_segment(segment: str, _depth: int = 0) -> dict:
     if binary == "echo":
         return {"mutation": "none", "executable": binary, "argv": argv,
                 "reason": "echo without redirection only writes stdout"}
+    if binary == "rg" and any(a == "--pre" or a.startswith("--pre=") for a in rest):
+        return {"mutation": "mutation", "executable": binary, "argv": argv,
+                "reason": "rg --pre runs a program on every file"}
     if binary in READ_BINARIES:
         return {"mutation": "none", "executable": binary, "argv": argv,
                 "reason": f"{binary} is a read-only query"}

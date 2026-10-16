@@ -43,6 +43,15 @@ class ClassifierHardeningTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(classify_shell(command)["mutation"], expected, command)
 
+    def test_rg_pre_and_process_substitution_execute_code(self):
+        for command in ("rg --pre ./hook foo", "rg --pre=./hook foo", "cat <(rm -rf x)",
+                        "diff <(ls a) <(ls b)"):
+            with self.subTest(command=command):
+                self.assertEqual(classify_shell(command)["mutation"], "mutation", command)
+
+    def test_rg_plain_stays_none(self):
+        self.assertEqual(classify_shell("rg -n foo src")["mutation"], "none")
+
     def test_git_read_only_subcommands_with_write_or_exec_flags(self):
         for command in ("git diff --output=out.patch", "git show --output out.txt HEAD",
                         "git log --output=o", "git diff --ext-diff",
