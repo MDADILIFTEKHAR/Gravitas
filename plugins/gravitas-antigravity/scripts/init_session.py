@@ -14,6 +14,7 @@ import argparse
 import re
 from datetime import datetime, timezone, date
 from pathlib import Path
+from gravitas_policy import MODE_ALIASES, MODES
 from session_context import conversation_key
 
 
@@ -22,6 +23,19 @@ def criterion_ids(contract: dict) -> list[str]:
     for index, criterion in enumerate(contract.get("acceptance_criteria", []), 1):
         result.append(criterion.get("id") if isinstance(criterion, dict) else f"AC{index}")
     return result
+
+
+def validate_contract(contract: object, parser: argparse.ArgumentParser) -> dict:
+    if not isinstance(contract, dict):
+        parser.error("contract must be a JSON object")
+    mode = contract.get("mode")
+    if mode not in MODES and mode not in MODE_ALIASES:
+        parser.error(f"unknown mode {mode!r}; valid modes: {sorted(MODES)} and aliases: {sorted(MODE_ALIASES)}")
+    if not isinstance(contract.get("objective"), str) or not contract["objective"].strip():
+        parser.error("contract objective must be a non-empty string")
+    if "acceptance_criteria" in contract and not isinstance(contract["acceptance_criteria"], list):
+        parser.error("contract acceptance_criteria must be a list")
+    return contract
 
 
 def main():
@@ -34,19 +48,23 @@ def main():
 
     # Load contract
     contract = {}
-    if args.contract:
-        with open(args.contract) as f:
-            contract = json.load(f)
-    elif args.contract_json:
-        contract = json.loads(args.contract_json)
-    else:
-        # Minimal default contract
-        contract = {
-            'mode': 'implement',
-            'objective': 'Task objective not specified',
-            'acceptance_criteria': [],
-            'budget': 'balanced'
-        }
+    try:
+        if args.contract:
+            with open(args.contract) as f:
+                contract = json.load(f)
+        elif args.contract_json:
+            contract = json.loads(args.contract_json)
+        else:
+            # Minimal default contract
+            contract = {
+                'mode': 'implement',
+                'objective': 'Task objective not specified',
+                'acceptance_criteria': [],
+                'budget': 'balanced'
+            }
+    except (OSError, json.JSONDecodeError) as error:
+        parser.error(f"could not load contract: {error}")
+    contract = validate_contract(contract, parser)
 
     # Determine task ID
     task_id = args.task_id or contract.get('task_id')

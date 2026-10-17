@@ -1,8 +1,9 @@
 """Append-only, hash-linked evidence records for the Gravitas runtime.
 
 This is tamper-evident rather than tamper-proof: a writer with filesystem access
-can rewrite a ledger.  The chain makes accidental corruption and undisclosed
-edits detectable by ``gravitas verify``.
+can rewrite a ledger, and the keyless hash does not authenticate provenance.
+The chain makes accidental corruption and undisclosed edits detectable by
+``gravitas verify``.
 """
 from __future__ import annotations
 

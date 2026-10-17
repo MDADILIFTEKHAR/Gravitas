@@ -19,6 +19,8 @@ from pathlib import Path
 
 from gravitas_action import antigravity_envelope, workspace_roots
 from gravitas_policy import (
+    MODE_ALIASES,
+    MODES,
     READ_ONLY_MODES,
     action_fingerprint,
     evaluate_action,
@@ -89,7 +91,11 @@ def main():
 
     session_dir = session_dir_for_payload(payload)
     contract = load_contract(session_dir) if session_dir else {}
-    mode = normalize_mode(contract.get("mode", "implement"))
+    raw_mode = contract.get("mode", "implement")
+    if raw_mode not in MODES and raw_mode not in MODE_ALIASES:
+        deny(f"Unknown contract mode {raw_mode!r}; denied fail-closed.")
+        return
+    mode = normalize_mode(raw_mode)
 
     # A native conversation without an initialized contract is deliberately
     # unable to mutate. This prevents one task from inheriting another task's

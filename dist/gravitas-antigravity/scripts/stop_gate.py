@@ -12,24 +12,52 @@ Output (stdout): JSON with decision: allow|continue and optional reason
 """
 from __future__ import annotations
 import json
+import shlex
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
 from session_context import session_dir_for_payload
 from evidence_chain import verify_chain
-from gravitas_evidence import criterion_states, evidence_deficit, is_fresh, owned_validator_pass
+from gravitas_evidence import (
+    criterion_states,
+    declared_validator_pass,
+    evidence_deficit,
+    is_fresh,
+    owned_validator_pass,
+)
 
 #: Stop-gate attempt budget: after this many continue cycles the gate must
 #: terminate safely instead of looping forever. Termination is explicit
 #: unverified (decision allow + unverified:true), never a false PASS.
 
 
-def load_contract(session_dir: Path) -> dict:
+def legacy_requirement_met(requirement: object, entry: dict) -> bool:
+    """Exact match of a legacy ``required_validators`` item against one evidence entry.
+
+    A requirement is met only by the entry's validator id or by the whole recorded
+    command line. A substring test would let ``"test"`` be satisfied by
+    ``echo latest``.
+    """
+    if not isinstance(requirement, str) or not requirement:
+        return False
+    if entry.get("validator_id") == requirement:
+        return True
+    command = entry.get("command")
+    if not isinstance(command, list) or not all(isinstance(part, str) for part in command):
+        return False
+    return requirement == shlex.join(command)
+
+
+def load_contract(session_dir: Path) -> dict | None:
     contract_path = session_dir / "contract.json"
-    if contract_path.exists():
+    if not contract_path.exists():
+        return None
+    try:
         with open(contract_path) as f:
-            return json.load(f)
-    return {}
+            contract = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return contract if isinstance(contract, dict) else None
 
 
 def load_evidence(session_dir: Path) -> list:
@@ -117,6 +145,19 @@ def main():
         return
 
     contract = load_contract(session_dir)
+    if contract is None:
+        reason = "Completion gate: contract is missing or invalid; cannot verify completion"
+        record_stop_gate_cycle(session_dir, "continue", reason)
+        print(json.dumps({"decision": "continue", "reason": reason}))
+        return
+
+    acceptance_criteria = contract.get("acceptance_criteria")
+    if not isinstance(acceptance_criteria, list) or not acceptance_criteria:
+        reason = "Completion gate: contract declares no acceptance criteria; define what done means before stopping"
+        record_stop_gate_cycle(session_dir, "continue", reason)
+        print(json.dumps({"decision": "continue", "reason": reason}))
+        return
+
     evidence = load_evidence(session_dir)
     state = load_state(session_dir)
     failures = load_failures(session_dir)
@@ -158,7 +199,6 @@ def main():
     # (written before the final mutation), SUPPORTED, FAIL, BLOCKED, and
     # UNVERIFIABLE all block with the deficit action attached.
     states = criterion_states(contract, evidence)
-    acceptance_criteria = contract.get("acceptance_criteria", [])
     deficit = {item["criterion"]: item for item in evidence_deficit(contract, states)}
     uncovered = []
     for index, criterion in enumerate(acceptance_criteria, 1):
@@ -181,17 +221,27 @@ def main():
     # Legacy command fragments are retained only as a migration diagnostic. New
     # contracts name validators, which are matched by ID and captured exit code.
     required_validators = contract.get("required_validators", [])
-    required_validator_ids = [validator.get("id") for validator in contract.get("validators", [])]
+    declared_validators = {
+        validator.get("id"): validator
+        for validator in contract.get("validators", [])
+        if isinstance(validator, dict) and isinstance(validator.get("id"), str)
+    }
+    required_validator_ids = list(declared_validators)
     missing_validators = [
         validator for validator in required_validators
         if not any(
-            validator in " ".join(entry.get("command", [])) and owned_validator_pass(entry) and is_fresh(entry, evidence)
+            legacy_requirement_met(validator, entry) and owned_validator_pass(entry) and is_fresh(entry, evidence)
             for entry in evidence
         )
     ]
     missing_validators.extend(
         validator_id for validator_id in required_validator_ids
-        if not any(entry.get("validator_id") == validator_id and owned_validator_pass(entry) and is_fresh(entry, evidence) for entry in evidence)
+        if not any(
+            entry.get("validator_id") == validator_id
+            and declared_validator_pass(entry, declared_validators[validator_id])
+            and is_fresh(entry, evidence)
+            for entry in evidence
+        )
     )
     if missing_validators:
         reason = "Completion gate: required validators missing or failing: " + ", ".join(missing_validators)

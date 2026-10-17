@@ -42,6 +42,14 @@ def owned_validator_pass(entry: dict) -> bool:
     )
 
 
+def declared_validator_pass(entry: dict, validator: dict) -> bool:
+    """Require completion evidence to use the contract-declared argv."""
+    return (
+        owned_validator_pass(entry)
+        and entry.get("command") == validator.get("command")
+    )
+
+
 def last_write_time(evidence: list[dict]) -> datetime | None:
     latest = None
     for entry in evidence:

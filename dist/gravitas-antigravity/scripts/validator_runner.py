@@ -69,7 +69,13 @@ def validate_invocation(contract: dict, validator_id: str, criterion_ids: list[s
     validator = validators.get(validator_id)
     if not validator:
         raise ValueError(f"validator_id {validator_id!r} is not declared by this contract")
-    if command != validator.get("command"):
+    declared = validator.get("command")
+    if not isinstance(declared, list) or not declared or not all(isinstance(part, str) for part in declared):
+        raise ValueError(
+            f"validator {validator_id!r} must declare its command as a non-empty argv array of strings "
+            f"(got {type(declared).__name__}); string-form commands are not supported"
+        )
+    if command != declared:
         raise ValueError("validator command differs from the contract declaration")
 
     criteria = {

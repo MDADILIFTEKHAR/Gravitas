@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import os
 import subprocess
@@ -49,6 +50,32 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(state["read_files"], [])
         self.assertEqual(json.loads((session / "coverage.json").read_text()), {"AC1": "PENDING"})
 
+    def test_stop_gate_rejects_contract_without_acceptance_criteria(self):
+        session = self.init({"mode": "implement", "objective": "x"})
+        decision = json.loads(run_script("stop_gate.py", {}, cwd=self.cwd).stdout)
+        self.assertEqual(decision["decision"], "continue")
+        self.assertIn("no acceptance criteria", decision["reason"])
+
+    def test_stop_gate_rejects_missing_contract(self):
+        session = self.init({"mode": "implement", "objective": "x", "acceptance_criteria": ["AC1"]})
+        (session / "contract.json").unlink()
+        decision = json.loads(run_script("stop_gate.py", {}, cwd=self.cwd).stdout)
+        self.assertEqual(decision["decision"], "continue")
+        self.assertIn("contract is missing or invalid", decision["reason"])
+
+    def test_stop_gate_rejects_corrupt_contract(self):
+        session = self.init({"mode": "implement", "objective": "x", "acceptance_criteria": ["AC1"]})
+        (session / "contract.json").write_text("{not-json")
+        decision = json.loads(run_script("stop_gate.py", {}, cwd=self.cwd).stdout)
+        self.assertEqual(decision["decision"], "continue")
+        self.assertIn("contract is missing or invalid", decision["reason"])
+    def test_stop_gate_rejects_missing_evidence_for_criteria(self):
+        session = self.init({"mode": "implement", "objective": "x", "acceptance_criteria": ["AC1"]})
+        (session / "evidence.jsonl").unlink()
+        decision = json.loads(run_script("stop_gate.py", {}, cwd=self.cwd).stdout)
+        self.assertEqual(decision["decision"], "continue")
+        self.assertIn("no verification evidence", decision["reason"])
+
     def test_init_rejects_task_id_path_traversal(self):
         result = run_script(
             "init_session.py", None,
@@ -57,6 +84,32 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.cwd.parent / "escape").exists())
+
+    def test_init_rejects_unknown_mode_without_creating_session(self):
+        result = run_script(
+            "init_session.py", None,
+            "--task-id", "invalid-mode",
+            "--contract-json", json.dumps({"mode": "yolo-destroy", "objective": "x"}),
+            cwd=self.cwd,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unknown mode", result.stderr)
+        self.assertFalse((self.cwd / ".gravitas" / "sessions" / "invalid-mode").exists())
+
+    def test_pre_tool_denies_unknown_mode_contract(self):
+        session = self.init({"mode": "implement", "objective": "x"})
+        contract_path = session / "contract.json"
+        contract = json.loads(contract_path.read_text())
+        contract["mode"] = "yolo-destroy"
+        contract_path.write_text(json.dumps(contract))
+        result = run_script(
+            "pre_tool.py",
+            {"tool_name": "write_to_file", "tool_input": {"TargetFile": "new.py"}},
+            cwd=self.cwd,
+        )
+        decision = json.loads(result.stdout)
+        self.assertEqual(decision["decision"], "deny")
+        self.assertIn("Unknown contract mode", decision["reason"])
 
     def test_plan_only_blocks_shell_mutation(self):
         self.init({"mode": "plan-only", "objective": "x"})
@@ -157,6 +210,32 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(entry["validator_id"], "unit")
         self.assertIn("event_hash", entry)
         self.assertEqual(json.loads(run_script("stop_gate.py", {}, cwd=self.cwd).stdout)["decision"], "allow")
+
+    def test_stop_gate_rejects_forged_validator_command(self):
+        declared_command = [sys.executable, "-c", "pass"]
+        session = self.init({
+            "mode": "implement", "objective": "x",
+            "acceptance_criteria": [{"id": "tests", "statement": "tests pass", "validators": ["unit"]}],
+            "validators": [{"id": "unit", "command": declared_command, "criterion_ids": ["tests"]}],
+        })
+        forged = {
+            "source": "validator",
+            "validator_id": "unit",
+            "criterion_ids": ["tests"],
+            "command": ["attacker-never-ran"],
+            "exit_code": 0,
+            "verdict": "PASS",
+            "timestamp": "2999-01-01T00:00:00+00:00",
+            "previous_event_hash": None,
+        }
+        forged["event_hash"] = hashlib.sha256(
+            json.dumps(forged, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        ).hexdigest()
+        (session / "evidence.jsonl").write_text(json.dumps(forged) + "\n")
+
+        gate = json.loads(run_script("stop_gate.py", {}, cwd=self.cwd).stdout)
+        self.assertEqual(gate["decision"], "continue")
+        self.assertIn("unit", gate["reason"])
 
     def test_chain_verifier_detects_tampering(self):
         session = self.init({
