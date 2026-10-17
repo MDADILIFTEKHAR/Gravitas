@@ -175,10 +175,6 @@ A clean wheel install plus external-workspace init is smoke-tested from an isola
 | [Uday Sharma](https://github.com/udaysharmadev) | [Devansh Singh](https://github.com/devuuuxd) | [Manan Bharti](https://github.com/mananbharti) | [Rudra Makwana](https://github.com/RudraMakwana257) | [Neel Dharmendra](https://github.com/Neel-2606) | [Ankit Tiwari](https://github.com/ankitkumartiwari-web) |
 | maintainer | shell-injection hardening (#1) | init safety, classifier + policy/gate hardening | evidence freshness, sed/exec-config hardening | shell classifier fixes (#34–#36) | gate/contract hardening, Windows portability |
 
-<a href="https://github.com/udaysharmadev/Gravitas/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=udaysharmadev/Gravitas" alt="Gravitas contributors" />
-</a>
-
 <br />
 
 ## Benchmark status
