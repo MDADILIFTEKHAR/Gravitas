@@ -43,6 +43,9 @@ class NormalizeChangedTests(unittest.TestCase):
         self.assertEqual(_normalize_changed(self.root, "module.py"), "module.py")
         self.assertEqual(_normalize_changed(self.root, str(self.root / "module.py")), "module.py")
         self.assertEqual(_normalize_changed(self.root, "sub/inner.py"), "sub/inner.py")
+        self.assertEqual(_normalize_changed(self.root, r"sub\inner.py"), "sub/inner.py")
+        self.assertEqual(_normalize_changed(self.root, str(self.root / "sub" / "inner.py")),
+                         "sub/inner.py")
 
     def test_in_root_dotdot_that_stays_inside_normalizes(self):
         self.assertEqual(_normalize_changed(self.root, "sub/../module.py"), "module.py")

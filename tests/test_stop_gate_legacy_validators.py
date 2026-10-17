@@ -13,9 +13,12 @@ sys.path.insert(0, str(ROOT / "plugins/gravitas-antigravity/scripts"))
 from stop_gate import legacy_requirement_met
 
 
+ECHO_COMMAND = [sys.executable, "-c", "print('latest')"]
+
+
 class LegacyRequirementMatchTests(unittest.TestCase):
     def test_substring_of_command_does_not_satisfy(self):
-        entry = {"validator_id": "VAL-001", "command": ["/bin/echo", "latest"]}
+        entry = {"validator_id": "VAL-001", "command": ECHO_COMMAND}
         self.assertFalse(legacy_requirement_met("test", entry))
         self.assertFalse(legacy_requirement_met("echo", entry))
 
@@ -61,14 +64,14 @@ class StopGateLegacyValidatorTests(unittest.TestCase):
         return self.init({
             "mode": "implement", "objective": "x",
             "acceptance_criteria": [{"id": "AC1", "statement": "AC1", "validators": ["unit"]}],
-            "validators": [{"id": "unit", "command": ["/bin/echo", "latest"], "criterion_ids": ["AC1"]}],
+            "validators": [{"id": "unit", "command": ECHO_COMMAND, "criterion_ids": ["AC1"]}],
             "required_validators": required,
         })
 
     def _run_validator(self, session):
         result = run_script(
             "validator_runner.py", None, "--session-dir", str(session), "--validator-id", "unit",
-            "--criterion-id", "AC1", "--", "/bin/echo", "latest", cwd=self.cwd)
+            "--criterion-id", "AC1", "--", *ECHO_COMMAND, cwd=self.cwd)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def _decision(self):
@@ -82,7 +85,7 @@ class StopGateLegacyValidatorTests(unittest.TestCase):
         self.assertIn("test", decision["reason"])
 
     def test_exact_declared_command_still_satisfies_requirement(self):
-        session = self._session(["/bin/echo latest"])
+        session = self._session([shlex.join(ECHO_COMMAND)])
         self._run_validator(session)
         self.assertEqual(self._decision()["decision"], "allow")
 

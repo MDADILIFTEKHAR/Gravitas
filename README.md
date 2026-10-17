@@ -162,7 +162,19 @@ A clean wheel install plus external-workspace init is smoke-tested from an isola
 
 ## Star History
 
+<br />
+
 [![Star History Chart](https://api.star-history.com/svg?repos=udaysharmadev/Gravitas&type=timeline)](https://star-history.com/#udaysharmadev/Gravitas&timeline)
+
+<br />
+
+## Contributors
+
+<a href="https://github.com/udaysharmadev/Gravitas/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=udaysharmadev/Gravitas" alt="Gravitas contributors" />
+</a>
+
+<br />
 
 ## Benchmark status
 

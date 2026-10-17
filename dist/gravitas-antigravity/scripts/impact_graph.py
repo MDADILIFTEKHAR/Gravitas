@@ -18,15 +18,15 @@ def _normalize_changed(root: Path, changed: str) -> str | None:
     # Resolve both forms against the real root so "..", symlink, and absolute
     # escapes are all rejected the same way before the path becomes a graph key.
     root = root.resolve()
-    candidate = Path(changed)
+    candidate = Path(changed.replace("\\", "/"))
     if not candidate.is_absolute():
         candidate = root / candidate
     try:
-        relative = str(candidate.resolve().relative_to(root))
+        relative = candidate.resolve().relative_to(root)
     except ValueError:
         return None
     if (root / relative).is_file():
-        return relative
+        return relative.as_posix()
     return None
 
 
