@@ -54,17 +54,27 @@ def cmd_run(args):
     """Run one implementation episode (needs GEMINI_API_KEY or Keychain entry)."""
     from implementation import check_holdout, run_episode
     from run import load_manifest, load_task, result_path
+
     task = load_task(args.task_file)
-    holdout_error = check_holdout(task["task_id"], load_manifest(), args.include_holdout)
+    holdout_error = check_holdout(
+        task["task_id"], load_manifest(), args.include_holdout
+    )
     if holdout_error:
         print(f"ERROR {holdout_error}")
         return 3
-    episode = run_episode(task, args.model, args.configuration, args.max_steps)
+
+    episode = run_episode(
+        task, args.model, args.configuration, args.max_steps
+    )
     output = result_path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(episode, indent=2) + "\n")
-    print(f"Wrote {output} solve={episode['functional_solve']} invalid={episode['infrastructure_failure']}")
+    print(
+        f"Wrote {output} solve={episode['functional_solve']} "
+        f"invalid={episode['infrastructure_failure']}"
+    )
     return 0 if not episode["infrastructure_failure"] else 2
+
 
 
 def cmd_report(args):
@@ -73,20 +83,51 @@ def cmd_report(args):
     from metrics import aggregate
     from report import write_report
     from validate import validate_episodes
+
+    try:
+        from jsonschema import Draft7Validator
+    except ImportError:
+        print(
+            "jsonschema is required: "
+            "pip install -r benchmarks/runner/requirements.txt",
+            file=sys.stderr,
+        )
+        return 2
+
     episodes_dir = Path(args.episodes)
-    episodes, invalid = validate_episodes(episodes_dir)
+    schema_path = (
+        Path(__file__).resolve().parent.parent
+        / "schemas"
+        / "episode.schema.json"
+    )
+
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        episodes, invalid = validate_episodes(
+            episodes_dir,
+            schema=schema,
+            schema_validator=Draft7Validator,
+        )
+    except (ValueError, OSError) as error:
+        print(f"Episode validation failed: {error}", file=sys.stderr)
+        return 1
+
     summary = aggregate(episodes)
     comparisons = []
     if args.baseline and args.treatment:
         comparisons = [compare(episodes, args.baseline, args.treatment)]
+
     out = Path(args.out)
-    meta = {"dataset": str(episodes_dir), "invalid_episodes": invalid,
-            "models": f"{args.baseline} vs {args.treatment}"}
-    report_path, csv_path = write_report(summary, comparisons, out, meta=meta,
-                                         publish=args.publish)
+    meta = {
+        "dataset": str(episodes_dir),
+        "invalid_episodes": invalid,
+        "models": f"{args.baseline} vs {args.treatment}",
+    }
+    report_path, csv_path = write_report(
+        summary, comparisons, out, meta=meta, publish=args.publish
+    )
     print(f"Wrote {report_path} and {csv_path}")
     return 0
-
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="GravitasBench reproducibility CLI")

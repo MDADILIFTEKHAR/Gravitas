@@ -39,6 +39,56 @@ class BenchmarkRunnerTests(unittest.TestCase):
         }
         self.assertIn("functional_solve must be False from validator outputs", validate.episode_errors(episode, schema))
 
+    def test_report_rejects_contradictory_episode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            episodes_dir = root / "episodes"
+            episodes_dir.mkdir()
+
+            episode = {
+                "task_id": "malicious-test",
+                "repo_commit": "abc",
+                "model": "test-model",
+                "configuration": "test",
+                "validator_outputs": [
+                    {"criterion": "AC1", "result": "FAIL"}
+                ],
+                "claimed_success": True,
+                "functional_solve": True,
+                "false_completion": False,
+            }
+
+            episode_path = episodes_dir / "episode.json"
+            episode_path.write_text(
+                json.dumps(episode),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "benchmarks/cli.py"),
+                    "report",
+                    "--episodes",
+                    str(episodes_dir),
+                    "--out",
+                    str(root / "report"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(
+                result.returncode,
+                0,
+                "Contradictory episode must block report generation",
+            )
+            self.assertIn(
+                "Episode validation failed",
+                result.stderr,
+            )
     def test_validator_rejects_aggregate_artifact_cleanly(self):
         self.assertEqual(
             validate.episode_errors([], {}, None),
