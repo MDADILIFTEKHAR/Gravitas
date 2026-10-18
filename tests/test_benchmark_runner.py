@@ -48,7 +48,7 @@ class BenchmarkRunnerTests(unittest.TestCase):
             episode = {
                 "task_id": "malicious-test",
                 "repo_commit": "abc",
-                "model": "test-model",
+                "model": {"exact_slug": "test-model"},
                 "configuration": "test",
                 "validator_outputs": [
                     {"criterion": "AC1", "result": "FAIL"}
